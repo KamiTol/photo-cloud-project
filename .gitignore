@@ -1,0 +1,55 @@
+# ==========================================
+# DEPENDENCIAS Y COMPILACIÓN
+# ==========================================
+node_modules/
+dist/
+build/
+.npm/
+
+# ==========================================
+# VARIABLES DE ENTORNO (¡SEGURIDAD CRUCIAL!)
+# ==========================================
+# Bloquea credenciales de Postgres, MinIO, etc.
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ==========================================
+# PRUEBAS Y ARCHIVOS MULTIMEDIA LOCALES
+# ==========================================
+# Ignora las descargas generadas por los tests
+src/test/descargas/*
+!src/test/descargas/.gitkeep
+
+# Ignora los archivos multimedia pesados (imágenes/videos de prueba)
+src/test/assets/*
+!src/test/assets/.gitkeep
+
+# ==========================================
+# INFRAESTRUCTURA Y CONTENEDORES (OPCIONAL)
+# ==========================================
+# Si usas volúmenes de Docker persistentes en carpetas locales, ignóralos aquí:
+# .docker-data/
+# pg-data/
+
+# ==========================================
+# LOGS Y SISTEMA OPERATIVO
+# ==========================================
+# Logs de Node/NPM
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+.jsorg/
+
+# Configuraciones de editores (Opcional, descomenta si usas VS Code)
+# .vscode/
+# .idea/
