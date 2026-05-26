@@ -7,6 +7,7 @@ function App() {
   const [fotos, setFotos] = useState<any[]>([]);
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set());
   const [subiendo, setSubiendo] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; file: File; preview: string; progress: number; uploaded: boolean; failed?: boolean }>>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -27,25 +28,54 @@ function App() {
   const subirArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+
+    // Preparar cola con previews
+    const list = Array.from(files).map((file, idx) => ({
+      id: `${Date.now()}_${idx}`,
+      file,
+      preview: URL.createObjectURL(file),
+      progress: 0,
+      uploaded: false
+    }));
+    setUploadQueue(list);
     setSubiendo(true);
 
-    // Subir cada archivo en paralelo, incluyendo la fecha de mtime local
-    const uploads = Array.from(files).map(async (file) => {
+    // Subir secuencialmente o en paralelo pero controlando progreso individual
+    const promises = list.map((item, idx) => {
       const formData = new FormData();
-      formData.append('archivo', file);
-      // Enviar la mtime local como fallback: ms desde epoch
-      formData.append('fechaArchivo', String(file.lastModified));
-      return axios.post('http://localhost:3000/api/media/upload', formData);
+      formData.append('archivo', item.file);
+      formData.append('fechaArchivo', String(item.file.lastModified));
+
+      return axios.post('http://localhost:3000/api/media/upload', formData, {
+        onUploadProgress: (progressEvent) => {
+          const total = progressEvent.total || item.file.size;
+          const percent = Math.round((progressEvent.loaded / total) * 100);
+          setUploadQueue((prev) => prev.map((p) => p.id === item.id ? { ...p, progress: percent } : p));
+          // marca como subido cuando el browser completó el envío de bytes
+          if (percent >= 100) {
+            setUploadQueue((prev) => prev.map((p) => p.id === item.id ? { ...p, progress: 100, uploaded: true } : p));
+          }
+        }
+      }).then(() => {
+        // confirmar éxito servidor
+        setUploadQueue((prev) => prev.map((p) => p.id === item.id ? { ...p, progress: 100, uploaded: true, failed: false } : p));
+      }).catch((err) => {
+        console.error('Error subiendo', item.file.name, err);
+        // marcar como fallido
+        setUploadQueue((prev) => prev.map((p) => p.id === item.id ? { ...p, failed: true, uploaded: false } : p));
+      });
     });
 
     try {
-      await Promise.all(uploads);
-      await cargarFotos(); // Recargar tras subir
+      await Promise.all(promises);
+      await cargarFotos();
     } catch (err) {
-      console.error('Error subiendo archivos', err);
+      console.error('Error en la subida batch', err);
     } finally {
       setSubiendo(false);
-      // limpiar input
+      // liberar previews
+      uploadQueue.forEach((u) => URL.revokeObjectURL(u.preview));
+      setTimeout(() => setUploadQueue([]), 700);
       if (e.target) e.target.value = '';
     }
   };
@@ -117,7 +147,8 @@ function App() {
     let filename = `file_${id}`;
     const match = /filename=\"?([^\";]+)\"?/.exec(disposition);
     if (match) filename = match[1];
-    return { id, filename, buffer: new Uint8Array(res.data) };
+    const contentType = res.headers['content-type'] || 'application/octet-stream';
+    return { id, filename, buffer: new Uint8Array(res.data), contentType };
   };
 
   const downloadBlob = (blob: Blob, filename: string) => {
@@ -147,13 +178,24 @@ function App() {
     }
   };
 
+  const downloadSingle = async (id: string, preferredName?: string) => {
+    try {
+      const file = await fetchFile(id);
+      const name = preferredName ?? file.filename;
+      const blob = new Blob([file.buffer], { type: file.contentType || 'application/octet-stream' });
+      downloadBlob(blob, name);
+    } catch (err) {
+      console.error('Error descargando archivo', err);
+    }
+  };
+
   const downloadSelected = async () => {
     if (seleccionados.size === 0) return;
     const ids = Array.from(seleccionados);
     if (ids.length === 1) {
-      const file = await fetchFile(ids[0]);
-      const blob = new Blob([file.buffer], { type: 'application/octet-stream' });
-      downloadBlob(blob, file.filename);
+      const id = ids[0];
+      const fotoObj = fotos.find((f) => f.id === id);
+      await downloadSingle(id, fotoObj?.nombreOriginal);
     } else {
       await downloadFilesAsZip(ids.map((id) => ({ id })), 'seleccionados.zip');
     }
@@ -191,6 +233,44 @@ function App() {
         <div style={{ marginLeft: 'auto', color: '#666' }}>{subiendo ? 'Subiendo...' : ''}</div>
       </div>
 
+      {/* Panel de progreso de subida */}
+      {uploadQueue.length > 0 && (
+        <div style={{ marginBottom: 18, padding: 12, borderRadius: 10, background: '#f8fafc', boxShadow: '0 4px 12px rgba(2,6,23,0.04)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {uploadQueue.slice(0, 4).map((u) => (
+                <div key={u.id} style={{ width: 56, height: 56, borderRadius: 8, overflow: 'hidden', background: '#ddd', position: 'relative' }}>
+                  <img src={u.preview} alt={u.file.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  {u.failed && (
+                    <div style={{ position: 'absolute', top: 6, right: 6, width: 18, height: 18, borderRadius: 9, background: '#ef4444', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>!</div>
+                  )}
+                  {u.progress > 0 && u.progress < 100 && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 6, background: 'rgba(0,0,0,0.18)' }}>
+                      <div style={{ height: '100%', width: `${u.progress}%`, background: '#2563eb' }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+              {uploadQueue.length > 4 && (
+                <div style={{ width: 56, height: 56, borderRadius: 8, background: '#e6e9ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#374151' }}>+{uploadQueue.length - 4}</div>
+              )}
+            </div>
+
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ fontWeight: 700 }}>{uploadQueue.filter(u => u.uploaded).length} de {uploadQueue.length} archivos</div>
+                <div style={{ color: '#6b7280' }}>{uploadQueue.filter(u => u.uploaded).length} subidos</div>
+                <div style={{ marginLeft: 'auto', color: '#111827', fontSize: 13 }}>{subiendo ? 'Subiendo...' : 'Procesando'}</div>
+              </div>
+
+              <div style={{ marginTop: 8, height: 8, background: '#e6e9ee', borderRadius: 999, overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${Math.round(uploadQueue.reduce((s, u) => s + u.progress, 0) / Math.max(1, uploadQueue.length))}%`, background: '#2563eb', transition: 'width 240ms linear' }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Agrupar por mes/año */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         {groupFotos().map((group) => (
@@ -201,7 +281,10 @@ function App() {
               )}
               <div style={{ fontWeight: 700, fontSize: 16 }}>{formatGroupTitle(group.key)} <span style={{ color: '#6b7280', fontWeight: 500, marginLeft: 8 }}>({group.fotos.length})</span></div>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-                <button onClick={() => downloadFilesAsZip(group.fotos.map((f:any) => ({ id: f.id, filename: f.nombreOriginal })), `${group.key}.zip`)} style={{ fontSize: 13 }}>Descargar Grupo</button>
+                <button onClick={() => {
+                  if (group.fotos.length === 1) downloadSingle(group.fotos[0].id, group.fotos[0].nombreOriginal);
+                  else downloadFilesAsZip(group.fotos.map((f:any) => ({ id: f.id, filename: f.nombreOriginal })), `${group.key}.zip`);
+                }} style={{ fontSize: 13 }}>Descargar Grupo</button>
                 <button onClick={() => { const nuevos = new Set(seleccionados); group.fotos.forEach((f:any)=>nuevos.add(f.id)); setSeleccionados(nuevos); }} style={{ fontSize: 13 }}>Seleccionar Grupo</button>
               </div>
             </div>
@@ -229,7 +312,7 @@ function App() {
                       </div>
 
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={(e)=>{ e.stopPropagation(); downloadFilesAsZip([{ id: foto.id, filename: foto.nombreOriginal }], `${foto.nombreOriginal}.zip`); }} title="Descargar" style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'#ffffffcc', display:'flex', alignItems:'center', justifyContent:'center' }}><DownloadCloud size={16} /></button>
+                        <button onClick={(e)=>{ e.stopPropagation(); downloadSingle(foto.id, foto.nombreOriginal); }} title="Descargar" style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'#ffffffcc', display:'flex', alignItems:'center', justifyContent:'center' }}><DownloadCloud size={16} /></button>
                         <button onClick={(e)=>{ e.stopPropagation(); (async ()=>{ await axios.delete(`http://localhost:3000/api/media/${foto.id}`); cargarFotos(); })(); }} title="Borrar" style={{ width:36, height:36, borderRadius:'50%', border:'none', background:'#ffffffcc', display:'flex', alignItems:'center', justifyContent:'center' }}><Trash2 size={16} /></button>
                       </div>
                     </div>
