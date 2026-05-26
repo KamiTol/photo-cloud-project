@@ -34,12 +34,14 @@ const mediaController = new MediaController(
   consultarMediaUseCase, 
   obtenerMediaUseCase,
   borrarMediaUseCase,
-  listarMediaUseCase
+  listarMediaUseCase,
+  storageRepository
 );
 
 // 3. RUTAS (Ordenadas para evitar conflictos)
 app.get('/api/media', (req, res) => mediaController.listar(req, res));
 app.post('/api/media/upload', upload.single('archivo'), (req, res) => mediaController.subir(req, res));
+app.get('/api/media/thumb/:id', (req, res) => mediaController.thumbnail(req, res));
 
 // Las rutas con parámetros (:id) van al final para no interferir con las rutas estáticas
 app.get('/api/media/:id/download', (req, res) => mediaController.descargar(req, res));

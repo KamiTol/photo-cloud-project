@@ -5,6 +5,7 @@ import { ObtenerMediaUseCase } from '../../../../application/usecases/obtener-me
 import { BorrarMediaUseCase } from '../../../../application/usecases/borrar-media.usecase';
 import { ListarMediaUseCase } from '../../../../application/usecases/listar-media.usecase'; // 👈 Importación necesaria
 import { ExifExtractor } from '../../output/exif-extractor';
+import { IStorageRepository } from '../../../../application/ports/output/storage-repository.interface';
 
 export class MediaController {
   private readonly exifExtractor: ExifExtractor;
@@ -14,7 +15,8 @@ export class MediaController {
     private readonly consultarMediaUseCase: ConsultarMediaUseCase,
     private readonly obtenerMediaUseCase: ObtenerMediaUseCase,
     private readonly borrarMediaUseCase: BorrarMediaUseCase,
-    private readonly listarMediaUseCase: ListarMediaUseCase // 👈 Inyección añadida
+    private readonly listarMediaUseCase: ListarMediaUseCase, // 👈 Inyección añadida
+    private readonly storageRepository: IStorageRepository
   ) {
     this.exifExtractor = new ExifExtractor();
   }
@@ -94,6 +96,29 @@ async consultar(req: Request, res: Response) {
     res.status(404).json({ error: 'No se pudo cargar la imagen' });
   }
 }
+
+  async thumbnail(req: Request, res: Response) {
+    try {
+      const id = req.params.id;
+      if (!id) return res.status(400).json({ error: 'El ID es requerido.' });
+
+      const media = await this.consultarMediaUseCase.ejecutar(id);
+      const thumbId = `thumb_${id}`;
+      const bufferThumb = await this.storageRepository.obtenerMedia(thumbId);
+
+      res.setHeader('Content-Type', media.mimetype);
+      return res.send(bufferThumb);
+    } catch (error: any) {
+      console.warn(`Miniatura no disponible para ${req.params.id}, sirviendo original:`, error.message);
+      try {
+        const archivo = await this.obtenerMediaUseCase.ejecutar(req.params.id);
+        res.setHeader('Content-Type', archivo.mimetype);
+        return res.send(archivo.buffer);
+      } catch (innerError: any) {
+        return res.status(404).json({ error: innerError.message });
+      }
+    }
+  }
 
   async descargar(req: Request, res: Response) {
     try {
