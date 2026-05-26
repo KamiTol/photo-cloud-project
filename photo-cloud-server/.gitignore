@@ -1,0 +1,28 @@
+# Node / build
+node_modules/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# TypeScript artifacts
+*.tsbuildinfo
+.ts-node/
+
+# Editor
+.vscode/
+.idea/
+
+# Test assets
+src/test/descargas/*
+!src/test/descargas/.gitkeep
+src/test/assets/*
+!src/test/assets/.gitkeep

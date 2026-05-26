@@ -2,6 +2,7 @@ import { Media, MetadatosMedia, TipoMedia } from '../../domain/models/media';
 import { IMediaRepository } from '../ports/output/media-repository.interface';
 import { IStorageRepository } from '../ports/output/storage-repository.interface';
 import crypto from 'crypto';
+import sharp from 'sharp';
 
 export interface SubirMediaDTO {
   nombreOriginal: string;
@@ -18,27 +19,25 @@ export class SubirMediaUseCase {
   ) {}
 
   async ejecutar(dto: SubirMediaDTO): Promise<Media> {
+    console.info('DEBUG SubirMediaUseCase: fechaOriginal DTO:', dto.fechaOriginal);
+    console.info('DEBUG SubirMediaUseCase: metadatosExtraidos:', dto.metadatosExtraidos);
     const hash = crypto.createHash('sha256').update(dto.buffer).digest('hex');
 
-    // 1. Buscar si el hash ya existe en la base de datos
+    // 1. Buscar si el hash ya existe
     const mediaExistente = await this.mediaRepository.buscarPorHash(hash);
     
     if (mediaExistente) {
-      // 🛠️ VERIFICACIÓN DE INTEGRIDAD CRUZADA
       const existeFisicamente = await this.storageRepository.existeMedia(mediaExistente.id);
 
       if (existeFisicamente) {
-        // Si existe en ambos lados, es un duplicado real. Lo bloqueamos.
         throw new Error(`Integridad: El archivo ya existe completamente en el sistema (ID: ${mediaExistente.id}).`);
       } else {
-        // 🚨 DESCALCE DETECTADO: Está en la BD pero alguien lo borró de MinIO.
-        console.log(`⚠️ Descalce detectado para [${dto.nombreOriginal}]. Limpiando registro huérfano de la BD...`);
+        console.log(`⚠️ Descalce detectado para [${dto.nombreOriginal}]. Limpiando registro huérfano...`);
         await this.mediaRepository.eliminar(mediaExistente.id);
-        // Continuamos el flujo para que se vuelva a crear correctamente en ambos lados
       }
     }
 
-    // Código de subida estándar (se ejecuta si el archivo es nuevo o si reparamos el descalce)
+    // 2. Preparar entidad
     let tipo: TipoMedia = TipoMedia.IMAGEN;
     if (dto.mimetype.startsWith('video/')) {
       tipo = TipoMedia.VIDEO;
@@ -59,15 +58,28 @@ export class SubirMediaUseCase {
       creadoEn
     );
 
-    // Guardar en MinIO primero
+    // 3. Guardar archivo original en MinIO (Primero el original)
     await this.storageRepository.guardarMedia(id, dto.buffer, dto.mimetype);
 
+    // 4. Generación de Thumbnail (Segura: no bloquea si falla)
+    if (tipo === TipoMedia.IMAGEN) {
+      try {
+        const thumbnailBuffer = await sharp(dto.buffer)
+          .resize(200)
+          .toBuffer();
+        await this.storageRepository.guardarMedia(`thumb_${id}`, thumbnailBuffer, dto.mimetype);
+      } catch (thumbError) {
+        console.error(`⚠️ Error al generar thumbnail para ${id}:`, thumbError);
+      }
+    }
+
+    // 5. Persistir en base de datos
     try {
-      // Guardar en Postgres
       await this.mediaRepository.guardar(nuevaMedia);
     } catch (error) {
-      // Rollback si la base de datos falla
+      // Rollback si la DB falla
       await this.storageRepository.eliminarMedia(id);
+      await this.storageRepository.eliminarMedia(`thumb_${id}`).catch(() => {});
       throw new Error(`Falla en persistencia de metadatos: ${(error as Error).message}`);
     }
 

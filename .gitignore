@@ -50,6 +50,47 @@ lerna-debug.log*
 Thumbs.db
 .jsorg/
 
-# Configuraciones de editores (Opcional, descomenta si usas VS Code)
-# .vscode/
-# .idea/
+# Configuraciones de editores (Opcional)
+.vscode/
+.idea/
+
+# ==========================================
+# MONOREPO / GENERAL
+# ==========================================
+# Ignora node_modules y builds en cualquier subcarpeta (client/server)
+**/node_modules/
+**/dist/
+**/build/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Cachés y artefactos
+.cache/
+.parcel-cache/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Entornos/credenciales (NO subir)
+.env
+.env.*
+
+# ts-node / ts-node-dev artifacts
+.ts-node/
+ts-node-dev.log
+
+# Test artifacts and local media used only for testing
+src/test/descargas/*
+!src/test/descargas/.gitkeep
+src/test/assets/*
+!src/test/assets/.gitkeep
+
+# Optional: Docker / DB volumes uncomment if used locally
+# .docker-data/
+# pg-data/
