@@ -65,6 +65,13 @@ export class PostgresMediaRepository implements IMediaRepository {
     return resultado.rows.map(fila => this.mapearAMediaEntidad(fila));
   }
 
+  // Lista únicamente los medios de un tipo concreto (IMAGEN o VIDEO), del más reciente al más antiguo
+  async listarPorTipo(tipo: TipoMedia): Promise<Media[]> {
+    const query = `SELECT * FROM medios WHERE tipo = $1 ORDER BY creado_en DESC;`;
+    const resultado = await this.dbPool.query(query, [tipo]);
+    return resultado.rows.map(fila => this.mapearAMediaEntidad(fila));
+  }
+
   private mapearAMediaEntidad(fila: any): Media {
     return new Media(
       fila.id, fila.nombre_original, fila.mimetype, fila.tipo as TipoMedia,

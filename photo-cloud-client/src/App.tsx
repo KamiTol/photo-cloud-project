@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { zipSync } from 'fflate';
 import { DownloadCloud, Trash2, Plus, X, Check, LogOut, Share2, UserCheck } from 'lucide-react';
+import VideoGallery from './components/VideoGallery';
 
 const API = 'http://localhost:3000/api';
 
@@ -166,6 +167,7 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
   const [subiendo, setSubiendo] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; file: File; preview: string; progress: number; uploaded: boolean; failed?: boolean }>>([]);
   const [selectionMode, setSelectionMode] = useState(false);
+  const [vistaActiva, setVistaActiva] = useState<'fotos' | 'streaming'>('fotos');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Modal de compartir
@@ -349,6 +351,43 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
         </button>
       </div>
 
+      {/* Navegación por pestañas */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: '2px solid #374151' }}>
+        <button
+          onClick={() => setVistaActiva('fotos')}
+          style={{
+            padding: '10px 24px',
+            border: 'none',
+            borderBottom: vistaActiva === 'fotos' ? '2px solid #2563eb' : '2px solid transparent',
+            background: 'none',
+            fontWeight: vistaActiva === 'fotos' ? 700 : 400,
+            color: vistaActiva === 'fotos' ? '#60a5fa' : '#6b7280',
+            cursor: 'pointer',
+            marginBottom: -2,
+            fontSize: 15
+          }}>
+          📷 Galería de Fotos
+        </button>
+        <button
+          onClick={() => setVistaActiva('streaming')}
+          style={{
+            padding: '10px 24px',
+            border: 'none',
+            borderBottom: vistaActiva === 'streaming' ? '2px solid #7c3aed' : '2px solid transparent',
+            background: 'none',
+            fontWeight: vistaActiva === 'streaming' ? 700 : 400,
+            color: vistaActiva === 'streaming' ? '#a78bfa' : '#6b7280',
+            cursor: 'pointer',
+            marginBottom: -2,
+            fontSize: 15
+          }}>
+          🎥 Streaming
+        </button>
+      </div>
+
+      {vistaActiva === 'fotos' && (
+        <div>
+      
       {/* Barra de herramientas */}
       <div style={{ marginBottom: 20, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <input ref={fileInputRef} type="file" multiple onChange={subirArchivo} accept="image/*,video/*" style={{ display: 'none' }} />
@@ -506,6 +545,12 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
             </button>
           </div>
         </div>
+      )}
+        </div>
+      )}
+
+      {vistaActiva === 'streaming' && (
+        <VideoGallery />
       )}
     </div>
   );

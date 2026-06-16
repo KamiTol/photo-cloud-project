@@ -32,6 +32,11 @@ import { authMiddleware, RequestConUsuario } from './infrastructure/adapters/inp
 // Repositorio de permisos
 import { PostgresPermisosRepository } from './infrastructure/adapters/output/database/postgres-permisos.repository';
 
+// 🎥 Módulo de Streaming
+import { ListarVideosUseCase } from './application/usecases/listar-videos.usecase';
+import { StreamVideoUseCase } from './application/usecases/stream-video.usecase';
+import { StreamingController } from './infrastructure/adapters/input/http/streaming.controller';
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -66,6 +71,11 @@ const mediaController    = new MediaController(
 const authController     = new AuthController(registrarUseCase, loginUseCase);
 const permisosController = new PermisosController(compartirUseCase);
 
+// 🎥 Módulo de Streaming — inyeccion de dependencias
+const listarVideosUseCase = new ListarVideosUseCase(mediaRepository);
+const streamVideoUseCase  = new StreamVideoUseCase(mediaRepository, storageRepository);
+const streamingController = new StreamingController(listarVideosUseCase, streamVideoUseCase);
+
 // ── Rutas publicas ────────────────────────────────────────────────────────────
 app.post('/api/auth/register', (req, res) => authController.register(req, res));
 app.post('/api/auth/login',    (req, res) => authController.login(req, res));
@@ -95,6 +105,11 @@ app.get('/api/usuarios/me', async (req: RequestConUsuario, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// 🎥 Módulo de Streaming — rutas (publicas, fuera de authMiddleware)
+app.get('/api/streaming',          (req, res) => streamingController.listar(req, res));
+app.get('/api/streaming/:id/info', (req, res) => streamingController.info(req, res));
+app.get('/api/streaming/:id',      (req, res) => streamingController.stream(req, res));
 
 // ── Arranque ──────────────────────────────────────────────────────────────────
 const PORT = Number(process.env.PORT) || 3000;

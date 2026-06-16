@@ -1,4 +1,4 @@
-import { Media } from '../../../domain/models/media';
+import { Media, TipoMedia } from '../../../domain/models/media';
 
 export interface IMediaRepository {
   guardar(media: Media, usuarioId: string): Promise<void>;
@@ -7,4 +7,7 @@ export interface IMediaRepository {
   eliminar(id: string): Promise<void>;
   listarTodos(): Promise<Media[]>;
   listarPorUsuario(usuarioId: string): Promise<Media[]>;
+
+  // Lista únicamente los medios de un tipo concreto (IMAGEN o VIDEO)
+  listarPorTipo(tipo: TipoMedia): Promise<Media[]>;
 }
