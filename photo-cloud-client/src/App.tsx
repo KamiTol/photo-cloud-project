@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { zipSync } from 'fflate';
-import { DownloadCloud, Trash2, Plus, X, Check, LogOut } from 'lucide-react';
+import { DownloadCloud, Trash2, Plus, X, Check, LogOut, Share2, UserCheck } from 'lucide-react';
 
 const API = 'http://localhost:3000/api';
 
@@ -136,21 +136,62 @@ const btnPrimaryStyle: React.CSSProperties = {
   border: 'none', fontWeight: 700, cursor: 'pointer', fontSize: 15,
 };
 
+// ── Barra de cuota ────────────────────────────────────────────────────────
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function BarraCuota({ cuota }: { cuota: { usoByte: number; cuotaMaximaBytes: number; porcentajeUso: number } }) {
+  const color = cuota.porcentajeUso >= 90 ? '#ef4444' : cuota.porcentajeUso >= 70 ? '#f59e0b' : '#10b981';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 200 }}>
+      <div style={{ flex: 1, height: 6, background: '#374151', borderRadius: 999, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${cuota.porcentajeUso}%`, background: color, transition: 'width 400ms' }} />
+      </div>
+      <span style={{ fontSize: 12, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+        {formatBytes(cuota.usoByte)} / {formatBytes(cuota.cuotaMaximaBytes)}
+      </span>
+    </div>
+  );
+}
+
 // ── Galeria principal ─────────────────────────────────────────────────────
 function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout: () => void }) {
   const [fotos, setFotos] = useState<any[]>([]);
+  const [cuota, setCuota] = useState<{ usoByte: number; cuotaMaximaBytes: number; porcentajeUso: number } | null>(null);
   const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set());
   const [subiendo, setSubiendo] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; file: File; preview: string; progress: number; uploaded: boolean; failed?: boolean }>>([]);
   const [selectionMode, setSelectionMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => { cargarFotos(); }, []);
+  // Modal de compartir
+  const [modalCompartir, setModalCompartir] = useState<{ foto: any; permisos: any[] } | null>(null);
+  const [emailCompartir, setEmailCompartir] = useState('');
+  const [puedeEscribir, setPuedeEscribir] = useState(false);
+  const [errorCompartir, setErrorCompartir] = useState('');
+
+  useEffect(() => {
+    cargarFotos();
+    cargarCuota();
+    // Polling cada 30 s para detectar archivos compartidos sin necesidad de refresh
+    const intervalo = setInterval(() => { cargarFotos(); cargarCuota(); }, 30_000);
+    return () => clearInterval(intervalo);
+  }, []);
 
   const cargarFotos = () => {
     api.get('/media')
       .then(res => setFotos(res.data))
       .catch(err => console.error(err));
+  };
+
+  const cargarCuota = () => {
+    api.get('/usuarios/me')
+      .then(res => setCuota(res.data.cuota))
+      .catch(() => {});
   };
 
   const toggleSeleccion = (id: string) => {
@@ -192,6 +233,7 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
     try {
       await Promise.all(promises);
       await cargarFotos();
+      cargarCuota();
     } finally {
       setSubiendo(false);
       list.forEach(u => URL.revokeObjectURL(u.preview));
@@ -204,6 +246,7 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
     for (const id of seleccionados) await api.delete(`/media/${id}`);
     setSeleccionados(new Set());
     cargarFotos();
+    cargarCuota();
   };
 
   const groupFotos = () => {
@@ -257,13 +300,51 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
     else await downloadFilesAsZip(ids.map(id => ({ id })), 'seleccionados.zip');
   };
 
+  const abrirModalCompartir = async (foto: any) => {
+    setErrorCompartir('');
+    setEmailCompartir('');
+    setPuedeEscribir(false);
+    try {
+      const res = await api.get(`/media/${foto.id}/compartidos`);
+      setModalCompartir({ foto, permisos: res.data });
+    } catch {
+      setModalCompartir({ foto, permisos: [] });
+    }
+  };
+
+  const enviarCompartir = async () => {
+    if (!modalCompartir || !emailCompartir.trim()) return;
+    setErrorCompartir('');
+    try {
+      await api.post(`/media/${modalCompartir.foto.id}/compartir`, {
+        email: emailCompartir.trim(),
+        leer: true,
+        escribir: puedeEscribir,
+        ejecutar: false,
+      });
+      // Recargar permisos actuales
+      const res = await api.get(`/media/${modalCompartir.foto.id}/compartidos`);
+      setModalCompartir(prev => prev ? { ...prev, permisos: res.data } : null);
+      setEmailCompartir('');
+    } catch (err: any) {
+      setErrorCompartir(err.response?.data?.error || 'Error al compartir.');
+    }
+  };
+
+  const revocarAcceso = async (archivoId: string, usuarioId: string) => {
+    await api.delete(`/media/${archivoId}/compartir/${usuarioId}`);
+    const res = await api.get(`/media/${archivoId}/compartidos`);
+    setModalCompartir(prev => prev ? { ...prev, permisos: res.data } : null);
+  };
+
   return (
     <div style={{ padding: '20px', fontFamily: 'sans-serif', background: '#111827', minHeight: '100vh', color: '#fff' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
-        <h1 style={{ margin: 0, fontSize: 22 }}>Mi Nube de Fotos</h1>
-        <span style={{ marginLeft: 16, color: '#9ca3af', fontSize: 14 }}>Hola, {nombreUsuario}</span>
-        <button onClick={onLogout} title="Cerrar sesion" style={{ marginLeft: 'auto', background: 'none', border: '1px solid #374151', color: '#9ca3af', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0, fontSize: 22, flexShrink: 0 }}>Mi Nube de Fotos</h1>
+        <span style={{ color: '#9ca3af', fontSize: 14, flexShrink: 0 }}>Hola, {nombreUsuario}</span>
+        {cuota && <div style={{ flex: 1, minWidth: 180 }}><BarraCuota cuota={cuota} /></div>}
+        <button onClick={onLogout} title="Cerrar sesion" style={{ marginLeft: 'auto', background: 'none', border: '1px solid #374151', color: '#9ca3af', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
           <LogOut size={14} /> Salir
         </button>
       </div>
@@ -337,17 +418,30 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
                       <div style={{ color: '#d1d5db', fontSize: 11 }}>{new Date(foto.creadoEn).toLocaleDateString()}</div>
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={e => { e.stopPropagation(); downloadSingle(foto.id, foto.nombreOriginal); }} style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <button onClick={e => { e.stopPropagation(); downloadSingle(foto.id, foto.nombreOriginal); }} style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Descargar">
                         <DownloadCloud size={13} color="#fff" />
                       </button>
-                      <button onClick={e => { e.stopPropagation(); api.delete(`/media/${foto.id}`).then(cargarFotos); }} style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Trash2 size={13} color="#fff" />
-                      </button>
+                      {foto.esPropietario !== false && (
+                        <button onClick={e => { e.stopPropagation(); abrirModalCompartir(foto); }} style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Compartir">
+                          <Share2 size={13} color="#fff" />
+                        </button>
+                      )}
+                      {foto.esPropietario !== false && (
+                        <button onClick={e => { e.stopPropagation(); api.delete(`/media/${foto.id}`).then(() => { cargarFotos(); cargarCuota(); }); }} style={{ width: 30, height: 30, borderRadius: '50%', border: 'none', background: 'rgba(255,255,255,0.2)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title="Eliminar">
+                          <Trash2 size={13} color="#fff" />
+                        </button>
+                      )}
                     </div>
                   </div>
                   {selectionMode && (
                     <div style={{ position: 'absolute', top: 8, left: 8, width: 24, height: 24, borderRadius: '50%', background: seleccionados.has(foto.id) ? '#2563eb' : 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {seleccionados.has(foto.id) ? <Check size={13} color="#fff" /> : <X size={11} color="#111" />}
+                    </div>
+                  )}
+                  {foto.esPropietario === false && (
+                    <div title={`Compartido por ${foto.propietarioNombre || foto.propietarioEmail}`} style={{ position: 'absolute', top: 8, right: 8, background: '#7c3aed', borderRadius: 20, padding: '2px 7px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <UserCheck size={11} color="#fff" />
+                      <span style={{ fontSize: 10, color: '#fff', maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{foto.propietarioNombre || foto.propietarioEmail}</span>
                     </div>
                   )}
                 </div>
@@ -361,23 +455,85 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
           </div>
         )}
       </div>
+
+      {/* Modal compartir */}
+      {modalCompartir && (
+        <div onClick={() => setModalCompartir(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#1f2937', borderRadius: 16, padding: 28, width: 400, maxWidth: '90vw' }}>
+            <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Compartir archivo</h3>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#9ca3af' }}>{modalCompartir.foto.nombreOriginal}</p>
+
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input
+                value={emailCompartir}
+                onChange={e => setEmailCompartir(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && enviarCompartir()}
+                placeholder="Email del destinatario"
+                style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #374151', background: '#111827', color: '#fff', fontSize: 14, outline: 'none' }}
+              />
+              <button onClick={enviarCompartir} style={{ padding: '9px 16px', borderRadius: 8, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
+                Compartir
+              </button>
+            </div>
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#d1d5db', marginBottom: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={puedeEscribir} onChange={e => setPuedeEscribir(e.target.checked)} />
+              Permitir eliminar/reemplazar (permiso w)
+            </label>
+
+            {errorCompartir && <p style={{ color: '#ef4444', fontSize: 13, margin: '0 0 12px' }}>{errorCompartir}</p>}
+
+            {modalCompartir.permisos.length > 0 && (
+              <>
+                <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 8px' }}>Con acceso:</p>
+                {modalCompartir.permisos.map((p: any) => (
+                  <div key={p.destinatarioId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #374151' }}>
+                    <div>
+                      <span style={{ fontSize: 13 }}>{p.nombreDestinatario}</span>
+                      <span style={{ fontSize: 11, color: '#9ca3af', marginLeft: 8 }}>{p.emailDestinatario}</span>
+                      <span style={{ fontSize: 11, color: '#60a5fa', marginLeft: 8 }}>{p.puedeEscribir ? 'rw-' : 'r--'}</span>
+                    </div>
+                    <button onClick={() => revocarAcceso(modalCompartir.foto.id, p.destinatarioId)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 12 }}>
+                      Revocar
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            <button onClick={() => setModalCompartir(null)} style={{ marginTop: 20, width: '100%', padding: '9px', borderRadius: 8, background: '#374151', color: '#fff', border: 'none', cursor: 'pointer' }}>
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── App raiz ──────────────────────────────────────────────────────────────
+const SESSION_KEY = 'pc_session';
+
 export default function App() {
-  const [token, setToken]   = useState<string | null>(null);
-  const [nombre, setNombre] = useState('');
+  // Recuperar sesión previa de sessionStorage (sobrevive refresh, no cierre de pestaña)
+  const saved = (() => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } })();
+
+  const [token, setToken]   = useState<string | null>(saved?.token ?? null);
+  const [nombre, setNombre] = useState<string>(saved?.nombre ?? '');
+
+  // Sincronizar token en memoria al montar (necesario para el interceptor de axios)
+  if (saved?.token && !_token) _token = saved.token;
 
   const handleLogin = (t: string, n: string) => {
-    _token = t;          // guarda en memoria (no en localStorage)
+    _token = t;
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: t, nombre: n }));
     setToken(t);
     setNombre(n);
   };
 
   const handleLogout = () => {
     _token = null;
+    sessionStorage.removeItem(SESSION_KEY);
     setToken(null);
     setNombre('');
   };

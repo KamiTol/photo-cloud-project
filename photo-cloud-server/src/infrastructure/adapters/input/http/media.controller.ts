@@ -149,12 +149,12 @@ async listar(req: RequestConUsuario, res: Response) {
   }
 }
 
-  async borrar(req: Request, res: Response) {
+  async borrar(req: RequestConUsuario, res: Response) {
     try {
       const id = req.params.id;
       if (!id) return res.status(400).json({ error: 'El ID es requerido.' });
 
-      await this.borrarMediaUseCase.ejecutar(id);
+      await this.borrarMediaUseCase.ejecutar(id, req.usuario!.id);
       
       return res.status(200).json({ 
         message: 'Archivo eliminado correctamente.' 

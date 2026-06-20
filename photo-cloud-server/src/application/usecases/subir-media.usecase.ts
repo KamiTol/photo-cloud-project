@@ -1,6 +1,7 @@
 import { Media, MetadatosMedia, TipoMedia } from '../../domain/models/media';
 import { IMediaRepository } from '../ports/output/media-repository.interface';
 import { IStorageRepository } from '../ports/output/storage-repository.interface';
+import { IUsuarioRepository } from '../ports/output/usuario-repository.interface';
 import crypto from 'crypto';
 import sharp from 'sharp';
 
@@ -16,15 +17,25 @@ export interface SubirMediaDTO {
 export class SubirMediaUseCase {
   constructor(
     private readonly mediaRepository: IMediaRepository,
-    private readonly storageRepository: IStorageRepository
+    private readonly storageRepository: IStorageRepository,
+    private readonly usuarioRepository: IUsuarioRepository,
   ) {}
 
   async ejecutar(dto: SubirMediaDTO): Promise<Media> {
     console.info('DEBUG SubirMediaUseCase: fechaOriginal DTO:', dto.fechaOriginal);
     console.info('DEBUG SubirMediaUseCase: metadatosExtraidos:', dto.metadatosExtraidos);
     const hash = crypto.createHash('sha256').update(dto.buffer).digest('hex');
+    const tamanoArchivo = dto.buffer.length;
 
-    // 1. Buscar si el hash ya existe
+    // 1. Verificar que el usuario tiene cuota disponible
+    const cuota = await this.usuarioRepository.obtenerCuota(dto.usuarioId);
+    if (tamanoArchivo > cuota.disponibleBytes) {
+      const mbNecesario = (tamanoArchivo / 1024 / 1024).toFixed(2);
+      const mbDisponible = (cuota.disponibleBytes / 1024 / 1024).toFixed(2);
+      throw new Error(`Cuota insuficiente: el archivo requiere ${mbNecesario} MB pero solo hay ${mbDisponible} MB disponibles.`);
+    }
+
+    // 2. Buscar si el hash ya existe para este usuario
     const mediaExistente = await this.mediaRepository.buscarPorHash(hash, dto.usuarioId);
     
     if (mediaExistente) {
@@ -83,6 +94,9 @@ export class SubirMediaUseCase {
       await this.storageRepository.eliminarMedia(`thumb_${id}`).catch(() => {});
       throw new Error(`Falla en persistencia de metadatos: ${(error as Error).message}`);
     }
+
+    // 6. Actualizar cuota del usuario
+    await this.usuarioRepository.actualizarUso(dto.usuarioId, tamanoArchivo);
 
     return nuevaMedia;
   }
