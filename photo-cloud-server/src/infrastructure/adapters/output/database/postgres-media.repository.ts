@@ -5,14 +5,14 @@ import { IMediaRepository } from '../../../../application/ports/output/media-rep
 export class PostgresMediaRepository implements IMediaRepository {
   constructor(private readonly dbPool: Pool) {}
 
-  async guardar(media: Media): Promise<void> {
+  async guardar(media: Media, usuarioId: string): Promise<void> {
     const query = `
-      INSERT INTO medios (id, nombre_original, mimetype, tipo, tamano_bytes, hash, metadatos, creado_en)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+      INSERT INTO medios (id, nombre_original, mimetype, tipo, tamano_bytes, hash, metadatos, creado_en, usuario_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
     `;
     const valores = [
       media.id, media.nombreOriginal, media.mimetype, media.tipo,
-      media.tamanoBytes, media.hash, JSON.stringify(media.metadatos), media.creadoEn
+      media.tamanoBytes, media.hash, JSON.stringify(media.metadatos), media.creadoEn, usuarioId
     ];
 
     // DEBUG: confirmar la fecha que se insertará en la base de datos
@@ -40,9 +40,11 @@ export class PostgresMediaRepository implements IMediaRepository {
     return resultado.rows.length === 0 ? null : this.mapearAMediaEntidad(resultado.rows[0]);
   }
 
-  async buscarPorHash(hash: string): Promise<Media | null> {
-    const query = `SELECT * FROM medios WHERE hash = $1;`;
-    const resultado = await this.dbPool.query(query, [hash]);
+  async buscarPorHash(hash: string, usuarioId: string): Promise<Media | null> {
+    const resultado = await this.dbPool.query(
+      `SELECT * FROM medios WHERE hash = $1 AND usuario_id = $2;`,
+      [hash, usuarioId],
+    );
     return resultado.rows.length === 0 ? null : this.mapearAMediaEntidad(resultado.rows[0]);
   }
 
@@ -50,10 +52,16 @@ export class PostgresMediaRepository implements IMediaRepository {
     await this.dbPool.query(`DELETE FROM medios WHERE id = $1;`, [id]);
   }
 
-  // ✅ MÉTODO CORREGIDO
   async listarTodos(): Promise<Media[]> {
-    const query = `SELECT * FROM medios ORDER BY creado_en DESC;`;
-    const resultado = await this.dbPool.query(query);
+    const resultado = await this.dbPool.query(`SELECT * FROM medios ORDER BY creado_en DESC;`);
+    return resultado.rows.map(fila => this.mapearAMediaEntidad(fila));
+  }
+
+  async listarPorUsuario(usuarioId: string): Promise<Media[]> {
+    const resultado = await this.dbPool.query(
+      `SELECT * FROM medios WHERE usuario_id = $1 ORDER BY creado_en DESC;`,
+      [usuarioId],
+    );
     return resultado.rows.map(fila => this.mapearAMediaEntidad(fila));
   }
 

@@ -1,13 +1,14 @@
 import { Pool } from 'pg';
+import 'dotenv/config';
 
-// Configuramos el Pool de conexiones apuntando al Postgres real de su Docker
+// Pool de conexiones usando variables de entorno (sin credenciales hardcodeadas)
 export const dbPool = new Pool({
-  user: 'admin_fotos',
-  password: 'SuperPasswordSeguro123',
-  host: 'localhost',
-  database: 'photo_cloud_db', // La base de datos que leímos en su compose
-  port: 5432,
-  max: 20, // Máximo de conexiones simultáneas
+  user:     process.env.DB_USER     || 'admin_fotos',
+  password: process.env.DB_PASSWORD || '',
+  host:     process.env.DB_HOST     || 'localhost',
+  database: process.env.DB_NAME     || 'photo_cloud_db',
+  port:     Number(process.env.DB_PORT) || 5432,
+  max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });

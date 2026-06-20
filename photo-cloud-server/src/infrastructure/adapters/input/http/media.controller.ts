@@ -1,11 +1,12 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { SubirMediaUseCase } from '../../../../application/usecases/subir-media.usecase';
 import { ConsultarMediaUseCase } from '../../../../application/usecases/consultar-media.usecase';
 import { ObtenerMediaUseCase } from '../../../../application/usecases/obtener-media.usecase';
 import { BorrarMediaUseCase } from '../../../../application/usecases/borrar-media.usecase';
-import { ListarMediaUseCase } from '../../../../application/usecases/listar-media.usecase'; // 👈 Importación necesaria
+import { ListarMediaUseCase } from '../../../../application/usecases/listar-media.usecase';
 import { ExifExtractor } from '../../output/exif-extractor';
 import { IStorageRepository } from '../../../../application/ports/output/storage-repository.interface';
+import { RequestConUsuario } from './auth.middleware';
 
 export class MediaController {
   private readonly exifExtractor: ExifExtractor;
@@ -21,7 +22,7 @@ export class MediaController {
     this.exifExtractor = new ExifExtractor();
   }
 
-  async subir(req: Request, res: Response) {
+  async subir(req: RequestConUsuario, res: Response) {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No se envió ningún archivo.' });
@@ -62,8 +63,8 @@ export class MediaController {
         mimetype: req.file.mimetype,
         buffer: req.file.buffer,
         metadatosExtraidos,
-        // Preferir siempre la fecha enviada por el cliente cuando exista
         fechaOriginal: fechaDesdeCliente ?? fechaOriginal ?? fechaDesdeMetadatos ?? undefined,
+        usuarioId: req.usuario!.id,
       });
 
       return res.status(201).json({
@@ -74,6 +75,7 @@ export class MediaController {
         metadatos: resultado.metadatos,
       });
     } catch (error: any) {
+      console.error('ERROR al subir archivo:', error);
       return res.status(400).json({ error: error.message });
     }
   }
@@ -137,13 +139,12 @@ async consultar(req: Request, res: Response) {
     }
   }
 
-async listar(req: Request, res: Response) {
+async listar(req: RequestConUsuario, res: Response) {
   try {
-    const todasLasFotos = await this.listarMediaUseCase.ejecutar();
-    res.json(todasLasFotos);
+    const fotos = await this.listarMediaUseCase.ejecutar(req.usuario!.id);
+    res.json(fotos);
   } catch (error: any) {
-    // 👈 LOGUEA EL ERROR EN LA CONSOLA DEL SERVIDOR
-    console.error("DETALLE DEL ERROR:", error); 
+    console.error('DETALLE DEL ERROR:', error);
     res.status(500).json({ error: error.message });
   }
 }

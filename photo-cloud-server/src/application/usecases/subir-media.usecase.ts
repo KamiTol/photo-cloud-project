@@ -10,6 +10,7 @@ export interface SubirMediaDTO {
   buffer: Buffer;
   metadatosExtraidos?: MetadatosMedia;
   fechaOriginal?: Date;
+  usuarioId: string;
 }
 
 export class SubirMediaUseCase {
@@ -24,7 +25,7 @@ export class SubirMediaUseCase {
     const hash = crypto.createHash('sha256').update(dto.buffer).digest('hex');
 
     // 1. Buscar si el hash ya existe
-    const mediaExistente = await this.mediaRepository.buscarPorHash(hash);
+    const mediaExistente = await this.mediaRepository.buscarPorHash(hash, dto.usuarioId);
     
     if (mediaExistente) {
       const existeFisicamente = await this.storageRepository.existeMedia(mediaExistente.id);
@@ -75,7 +76,7 @@ export class SubirMediaUseCase {
 
     // 5. Persistir en base de datos
     try {
-      await this.mediaRepository.guardar(nuevaMedia);
+      await this.mediaRepository.guardar(nuevaMedia, dto.usuarioId);
     } catch (error) {
       // Rollback si la DB falla
       await this.storageRepository.eliminarMedia(id);

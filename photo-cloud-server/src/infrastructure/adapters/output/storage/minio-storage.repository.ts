@@ -1,20 +1,23 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { Readable } from 'stream'; // Importación nativa de Node.js para manejar el flujo de datos
+import { Readable } from 'stream';
 import { IStorageRepository } from '../../../../application/ports/output/storage-repository.interface';
+import 'dotenv/config';
 
 export class MinioStorageRepository implements IStorageRepository {
   private readonly s3Client: S3Client;
-  private readonly nombreBucket = 'fotos-originales';
+  private readonly nombreBucket: string;
 
   constructor() {
+    this.nombreBucket = process.env.MINIO_BUCKET || 'fotos-originales';
+
     this.s3Client = new S3Client({
       region: 'us-east-1',
-      endpoint: 'http://localhost:9000',
+      endpoint: process.env.MINIO_ENDPOINT || 'http://localhost:9000',
       credentials: {
-        accessKeyId: 'admin_storage',
-        secretAccessKey: 'StoragePassword123'
+        accessKeyId:     process.env.MINIO_ACCESS_KEY || '',
+        secretAccessKey: process.env.MINIO_SECRET_KEY || '',
       },
-      forcePathStyle: true
+      forcePathStyle: true,
     });
   }
 
