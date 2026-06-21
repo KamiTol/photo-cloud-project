@@ -42,20 +42,18 @@ cd photo-cloud-project
 
 ### 2. Configurar variables de entorno
 
-Copia el archivo de ejemplo y edítalo si necesitas cambiar contraseñas:
+El `.env` está en el `.gitignore` y **no se sube al repositorio**. Debes crearlo manualmente.
+
+Crea el archivo `photo-cloud-server/.env` (donde arranca el servidor) con el siguiente contenido:
 
 ```powershell
-Copy-Item .env.example .env
+New-Item -Path "photo-cloud-server\.env" -ItemType File -Force
+notepad "photo-cloud-server\.env"
 ```
 
-> El archivo `.env` que lee el servidor vive en `photo-cloud-server/.env`.  
-> También debes copiarlo ahí:
+Pega esto y guarda:
 
-```powershell
-Copy-Item .env photo-cloud-server/.env
-```
-
-Los valores por defecto funcionan sin cambios para desarrollo local:
+> Los valores por defecto funcionan sin cambios para desarrollo local:
 
 ```
 DB_HOST=localhost
