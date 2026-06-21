@@ -23,6 +23,11 @@ export interface IPermisosRepository {
 
   buscarPermiso(archivoId: string, usuarioId: string): Promise<PermisoArchivo | null>;
 
-  /** Archivos que otro usuario compartió conmigo con al menos lectura */
-  archivosCompartidosConmigo(usuarioId: string): Promise<{ archivoId: string; propietarioEmail: string; propietarioNombre: string }[]>;
+  /** Archivos que otro usuario compartio conmigo con al menos lectura */
+  archivosCompartidosConmigo(usuarioId: string): Promise<{
+    archivoId: string;
+    propietarioEmail: string;
+    propietarioNombre: string;
+    puedeEscribir: boolean;
+  }[]>;
 }

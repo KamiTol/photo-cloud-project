@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package filesync;
+
+option go_package = "go-sync/gen/filesync";
+
+// ── Servicio de sincronización de archivos ────────────────────────────────────
+// El JWT se pasa como metadato gRPC: "authorization: Bearer <token>"
+service FileSyncService {
+  // Sube un archivo al servidor en chunks (streaming del cliente al servidor).
+  // El primer mensaje lleva los metadatos; los siguientes, los datos binarios.
+  rpc SubirArchivo(stream ChunkSubida) returns (RespuestaSubida);
+
+  // Lista todos los archivos del usuario autenticado en el servidor.
+  rpc ListarArchivos(SolicitudListar) returns (RespuestaListar);
+
+  // Comprueba si un hash SHA-256 ya existe para el usuario.
+  // El cliente lo usa para evitar re-subir archivos sin cambios.
+  rpc VerificarHash(SolicitudHash) returns (RespuestaHash);
+}
+
+// ── Mensajes de SubirArchivo ──────────────────────────────────────────────────
+
+// Un chunk del archivo. El primer mensaje debe llenar los campos de metadatos;
+// los siguientes solo llevan `datos` (y `es_ultimo` = true en el último).
+message ChunkSubida {
+  string nombre_original = 1; // solo primer mensaje
+  string mimetype        = 2; // solo primer mensaje
+  string hash            = 3; // SHA-256 del archivo completo, solo primer mensaje
+  int64  tamano_bytes    = 4; // tamaño total en bytes, solo primer mensaje
+  bytes  datos           = 5; // datos binarios del chunk
+  bool   es_ultimo       = 6; // true en el último chunk
+}
+
+message RespuestaSubida {
+  bool   exito      = 1;
+  string archivo_id = 2;
+  string mensaje    = 3;
+}
+
+// ── Mensajes de ListarArchivos ────────────────────────────────────────────────
+
+message SolicitudListar {}
+
+message ArchivoInfo {
+  string id              = 1;
+  string nombre_original = 2;
+  string hash            = 3;
+  int64  tamano_bytes    = 4;
+  string creado_en       = 5;
+}
+
+message RespuestaListar {
+  repeated ArchivoInfo archivos = 1;
+}
+
+// ── Mensajes de VerificarHash ─────────────────────────────────────────────────
+
+message SolicitudHash {
+  string hash = 1;
+}
+
+message RespuestaHash {
+  bool   existe     = 1;
+  string archivo_id = 2; // ID en el servidor si ya existe
+}

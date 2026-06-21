@@ -4,6 +4,7 @@ import { Media } from '../../domain/models/media';
 
 export interface MediaConMeta extends Media {
   esPropietario: boolean;
+  puedeEscribir?: boolean;
   propietarioEmail?: string;
   propietarioNombre?: string;
 }
@@ -23,12 +24,13 @@ export class ListarMediaUseCase {
     const compartidos = await this.permisosRepository.archivosCompartidosConmigo(usuarioId);
     const compartidosMeta: MediaConMeta[] = [];
 
-    for (const { archivoId, propietarioEmail, propietarioNombre } of compartidos) {
+    for (const { archivoId, propietarioEmail, propietarioNombre, puedeEscribir } of compartidos) {
       const archivo = await this.mediaRepository.buscarPorId(archivoId);
       if (archivo) {
         compartidosMeta.push({
           ...archivo,
           esPropietario: false,
+          puedeEscribir,
           propietarioEmail,
           propietarioNombre,
         });

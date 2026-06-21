@@ -49,10 +49,22 @@ export class MinioStorageRepository implements IStorageRepository {
       await this.s3Client.send(comando);
       return true;
     } catch (error: any) {
-      if (error.name === 'NotFound' || error.$metadata?.httpStatusCode === 404) {
+      // MinIO puede responder con 404 (NotFound/NoSuchKey) o 403 (sin permiso de listing)
+      // En cualquier caso de error se asume que no existe o no es accesible
+      const status = error.$metadata?.httpStatusCode;
+      if (
+        error.name === 'NotFound' ||
+        error.name === 'NoSuchKey' ||
+        error.Code === 'NoSuchKey' ||
+        status === 404 ||
+        status === 403
+      ) {
         return false;
       }
-      throw error;
+      // Para errores de conectividad o credenciales, loguear y devolver false
+      // en lugar de propagar (evita que el self-healing borre registros válidos)
+      console.warn(`[MinIO] existeMedia(${id}) error inesperado: ${error.name} - ${error.message}`);
+      return false;
     }
   }
 

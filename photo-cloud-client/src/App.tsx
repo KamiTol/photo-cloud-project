@@ -7,24 +7,39 @@ import VideoGallery from './components/VideoGallery';
 // ── Imagen autenticada ────────────────────────────────────────────────────
 // <img> no puede enviar headers, así que descargamos con axios y usamos Object URL
 function AuthImage({ src, alt, style }: { src: string; alt: string; style?: React.CSSProperties }) {
-  const [objectUrl, setObjectUrl] = useState<string>('');
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     let revoked = false;
     let blobUrl = '';
+    setError(false);
+    setObjectUrl(null);
     api.get(src, { responseType: 'blob' })
       .then(res => {
         if (revoked) return;
         blobUrl = URL.createObjectURL(res.data);
         setObjectUrl(blobUrl);
       })
-      .catch(() => setObjectUrl(''));
+      .catch(() => { if (!revoked) setError(true); });
     return () => {
       revoked = true;
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
   }, [src]);
 
+  if (error) {
+    // Placeholder cuando la imagen no carga
+    return (
+      <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#374151', color: '#6b7280', fontSize: 28 }}>
+        🖼
+      </div>
+    );
+  }
+  if (!objectUrl) {
+    // Skeleton mientras carga
+    return <div style={{ ...style, background: 'linear-gradient(90deg,#1f2937 25%,#374151 50%,#1f2937 75%)', backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite' }} />;
+  }
   return <img src={objectUrl} alt={alt} style={style} />;
 }
 
@@ -147,6 +162,358 @@ function BarraCuota({ cuota }: { cuota: { usoByte: number; cuotaMaximaBytes: num
   );
 }
 
+// ── Utilidades de sync ────────────────────────────────────────────────────
+const EXTS_MEDIA = new Set([
+  '.jpg','.jpeg','.png','.gif','.webp','.bmp','.tiff','.heic',
+  '.mp4','.mov','.avi','.mkv','.webm','.m4v','.3gp',
+]);
+
+async function sha256Browser(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+async function* leerArchivos(dir: FileSystemDirectoryHandle, ruta = ''): AsyncGenerator<{ file: File; ruta: string }> {
+  for await (const [nombre, handle] of (dir as any).entries()) {
+    if (handle.kind === 'file') {
+      const ext = '.' + nombre.split('.').pop()?.toLowerCase();
+      if (EXTS_MEDIA.has(ext)) {
+        const file = await (handle as FileSystemFileHandle).getFile();
+        yield { file, ruta: ruta ? `${ruta}/${nombre}` : nombre };
+      }
+    } else {
+      yield* leerArchivos(handle as FileSystemDirectoryHandle, ruta ? `${ruta}/${nombre}` : nombre);
+    }
+  }
+}
+
+function formatTiempo(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60)   return `${s}s`;
+  if (s < 3600) return `${Math.floor(s/60)}m ${s%60}s`;
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m`;
+}
+
+// ── IndexedDB helpers para persistir el FileSystemDirectoryHandle ─────────
+function abrirSyncDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('photo-cloud-sync', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('config');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+async function guardarHandleIDB(handle: FileSystemDirectoryHandle) {
+  const db = await abrirSyncDB();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('config', 'readwrite');
+    tx.objectStore('config').put(handle, 'dirHandle');
+    tx.oncomplete = () => resolve();
+    tx.onerror    = () => reject(tx.error);
+  });
+}
+async function cargarHandleIDB(): Promise<FileSystemDirectoryHandle | null> {
+  const db = await abrirSyncDB();
+  return new Promise(resolve => {
+    const tx  = db.transaction('config', 'readonly');
+    const req = tx.objectStore('config').get('dirHandle');
+    req.onsuccess = () => resolve((req.result as FileSystemDirectoryHandle) ?? null);
+    req.onerror   = () => resolve(null);
+  });
+}
+
+// ── Panel de Sincronización ───────────────────────────────────────────────
+function PanelSync(_: { email: string }) {
+  const [dirHandle, setDirHandle]     = useState<FileSystemDirectoryHandle | null>(null);
+  const [dirPermisoOk, setDirPermisoOk] = useState(false);
+  const [horaSync, setHoraSync]       = useState('02:00');
+  const [autoSync, setAutoSync]       = useState(false);
+  const [syncing, setSyncing]     = useState(false);
+  const [ultimoSync, setUltimoSync] = useState<Date | null>(null);
+  const [countdown, setCountdown]   = useState(0);
+  const [progreso, setProgreso]     = useState(0);
+  const [archivoActual, setActual]  = useState('');
+  const [log, setLog]               = useState<string[]>([]);
+  const [resumen, setResumen]       = useState('');
+
+  const syncingRef    = useRef(false);
+  const timerSyncRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerCountRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nextSyncAt    = useRef(0);
+  const horaSyncRef   = useRef('02:00');
+
+  useEffect(() => { horaSyncRef.current = horaSync; }, [horaSync]);
+
+  // ── Cargar configuración persistida al montar ─────────────────────────
+  useEffect(() => {
+    const hora = localStorage.getItem('sync-hora') ?? '02:00';
+    const auto = localStorage.getItem('sync-auto') === 'true';
+    setHoraSync(hora);
+    horaSyncRef.current = hora;
+
+    cargarHandleIDB().then(async (handle) => {
+      if (!handle) return;
+      setDirHandle(handle);
+      try {
+        const perm = await (handle as any).queryPermission({ mode: 'read' });
+        if (perm === 'granted') {
+          setDirPermisoOk(true);
+          if (auto) {
+            setAutoSync(true);
+            iniciarScheduler(handle, hora);
+          }
+        }
+        // Si perm === 'prompt': mostramos el handle pero pedimos reautorización
+      } catch { /* browser no soporta queryPermission */ }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addLog = (msg: string) => setLog(p => [...p.slice(-80), msg]);
+
+  // ── Núcleo de sync ────────────────────────────────────────────────────
+  const ejecutarSync = async (handle: FileSystemDirectoryHandle) => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    setSyncing(true);
+    setProgreso(0);
+    setLog([]);
+    setResumen('');
+    addLog(`📂 ${handle.name}`);
+
+    let hashes: Set<string>;
+    try {
+      const res = await api.get<string[]>('/media/hashes');
+      hashes = new Set(res.data);
+      addLog(`☁ En servidor: ${hashes.size} archivos`);
+    } catch {
+      addLog('✗ Error conectando con el servidor.');
+      syncingRef.current = false;
+      setSyncing(false);
+      return;
+    }
+
+    const archivos: Array<{ file: File; ruta: string }> = [];
+    for await (const entry of leerArchivos(handle)) archivos.push(entry);
+    addLog(`🔍 Archivos locales: ${archivos.length}`);
+
+    let subidos = 0, saltados = 0, errores = 0;
+    for (let i = 0; i < archivos.length; i++) {
+      const { file, ruta } = archivos[i];
+      setProgreso(Math.round((i / archivos.length) * 100));
+      setActual(ruta);
+      try {
+        const hash = await sha256Browser(file);
+        if (hashes.has(hash)) { saltados++; continue; }
+        const form = new FormData();
+        form.append('archivo', file, file.name);
+        form.append('fechaArchivo', String(file.lastModified));
+        await api.post('/media/upload', form);
+        hashes.add(hash);
+        subidos++;
+        addLog(`  ✓ ${ruta}`);
+      } catch (err: any) {
+        errores++;
+        addLog(`  ✗ ${ruta}: ${err?.response?.data?.error ?? err.message}`);
+      }
+    }
+
+    setProgreso(100);
+    setUltimoSync(new Date());
+    const txt = `✅ ${subidos} subidos · ${saltados} sin cambios${errores ? ` · ${errores} errores` : ''}`;
+    setResumen(txt);
+    addLog(`\n${txt}`);
+    syncingRef.current = false;
+    setSyncing(false);
+  };
+
+  // ── Scheduler ─────────────────────────────────────────────────────────
+  const detenerScheduler = () => {
+    if (timerSyncRef.current)  clearTimeout(timerSyncRef.current);
+    if (timerCountRef.current) clearInterval(timerCountRef.current);
+    timerSyncRef.current = null;
+    timerCountRef.current = null;
+  };
+
+  // Calcula ms hasta la próxima ocurrencia de HH:MM (hoy o mañana)
+  const msHastaHora = (hhmm: string): number => {
+    const [hh, mm] = hhmm.split(':').map(Number);
+    const ahora = new Date();
+    const objetivo = new Date(ahora);
+    objetivo.setHours(hh, mm, 0, 0);
+    if (objetivo <= ahora) objetivo.setDate(objetivo.getDate() + 1);
+    return objetivo.getTime() - ahora.getTime();
+  };
+
+  const iniciarScheduler = (handle: FileSystemDirectoryHandle, hhmm: string) => {
+    detenerScheduler();
+    const ms = msHastaHora(hhmm);
+    nextSyncAt.current = Date.now() + ms;
+    setCountdown(ms);
+
+    timerCountRef.current = setInterval(() => {
+      const left = nextSyncAt.current - Date.now();
+      setCountdown(left > 0 ? left : 0);
+    }, 1000);
+
+    const tick = () => {
+      ejecutarSync(handle);
+      // Programar para el mismo horario al día siguiente
+      const nextMs = msHastaHora(horaSyncRef.current);
+      nextSyncAt.current = Date.now() + nextMs;
+      timerSyncRef.current = setTimeout(tick, nextMs);
+    };
+    timerSyncRef.current = setTimeout(tick, ms);
+  };
+
+  const toggleAutoSync = () => {
+    if (autoSync) {
+      detenerScheduler();
+      setAutoSync(false);
+      setCountdown(0);
+      localStorage.setItem('sync-auto', 'false');
+    } else {
+      if (!dirHandle || !dirPermisoOk) return;
+      setAutoSync(true);
+      localStorage.setItem('sync-auto', 'true');
+      iniciarScheduler(dirHandle, horaSync);
+    }
+  };
+
+  const reautorizarCarpeta = async () => {
+    if (!dirHandle) return;
+    try {
+      await (dirHandle as any).requestPermission({ mode: 'read' });
+      setDirPermisoOk(true);
+      if (autoSync) iniciarScheduler(dirHandle, horaSync);
+    } catch { /* cancelado */ }
+  };
+
+  // Reiniciar scheduler si cambia la hora mientras está activo
+  useEffect(() => {
+    if (autoSync && dirHandle) iniciarScheduler(dirHandle, horaSync);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [horaSync]);
+
+  const seleccionarCarpeta = async () => {
+    try {
+      const handle = await (window as any).showDirectoryPicker({ mode: 'read' });
+      setDirHandle(handle);
+      setDirPermisoOk(true);
+      detenerScheduler();
+      setAutoSync(false);
+      localStorage.setItem('sync-auto', 'false');
+      setLog([]);
+      setResumen('');
+      await guardarHandleIDB(handle);
+    } catch { /* cancelado */ }
+  };
+
+  return (
+    <div style={{ maxWidth: 680 }}>
+      <h2 style={{ color: '#34d399', marginBottom: 4, fontSize: 18 }}>⚙ Sincronización de Carpeta</h2>
+      <p style={{ color: '#9ca3af', fontSize: 13, marginBottom: 20 }}>
+        Selecciona una carpeta y decide si sincronizar manualmente o de forma automática cada cierto tiempo.
+      </p>
+
+      {/* Carpeta */}
+      <div style={{ background: '#1f2937', borderRadius: 12, padding: 18, marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>Carpeta a sincronizar</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button onClick={seleccionarCarpeta}
+            style={{ padding: '10px 18px', borderRadius: 8, background: '#374151', color: '#fff', border: '1px solid #4b5563', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            📁 {dirHandle ? 'Cambiar carpeta' : 'Seleccionar carpeta'}
+          </button>
+          {dirHandle && !dirPermisoOk && (
+            <button onClick={reautorizarCarpeta}
+              style={{ padding: '10px 18px', borderRadius: 8, background: '#92400e', color: '#fff', border: '1px solid #b45309', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              🔓 Reautorizar acceso
+            </button>
+          )}
+          {dirHandle
+            ? <span style={{ fontSize: 14, color: dirPermisoOk ? '#34d399' : '#f59e0b', fontWeight: 600 }}>
+                📂 {dirHandle.name}{!dirPermisoOk ? ' (sin permiso)' : ''}
+              </span>
+            : <span style={{ fontSize: 13, color: '#6b7280' }}>Ninguna seleccionada</span>}
+        </div>
+      </div>
+
+      {/* Controles */}
+      {dirHandle && dirPermisoOk && (
+        <>
+          {/* Sync manual */}
+          <div style={{ background: '#1f2937', borderRadius: 12, padding: 18, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Sincronización manual</div>
+            <button onClick={() => ejecutarSync(dirHandle)} disabled={syncing}
+              style={{ padding: '11px 24px', borderRadius: 9, fontWeight: 700, fontSize: 14, background: syncing ? '#374151' : '#2563eb', color: '#fff', border: 'none', cursor: syncing ? 'not-allowed' : 'pointer' }}>
+              {syncing ? '⏳ Sincronizando...' : '🔄 Sincronizar ahora'}
+            </button>
+            {ultimoSync && <span style={{ marginLeft: 14, fontSize: 12, color: '#6b7280' }}>Último: {ultimoSync.toLocaleTimeString()}</span>}
+          </div>
+
+          {/* Auto-sync */}
+          <div style={{ background: '#1f2937', borderRadius: 12, padding: 18, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 1 }}>Sincronización automática diaria</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <label style={{ fontSize: 13, color: '#d1d5db', display: 'flex', alignItems: 'center', gap: 8 }}>
+                Sincronizar a las
+                <input
+                  type="time" value={horaSync}
+                  onChange={e => { setHoraSync(e.target.value); localStorage.setItem('sync-hora', e.target.value); }}
+                  style={{ padding: '7px 10px', borderRadius: 7, border: '1px solid #374151', background: '#111827', color: '#fff', fontSize: 14, colorScheme: 'dark' }}
+                />
+              </label>
+
+              <button onClick={toggleAutoSync}
+                style={{ padding: '9px 20px', borderRadius: 9, fontWeight: 700, fontSize: 13, background: autoSync ? '#7f1d1d' : '#065f46', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                {autoSync ? '⏹ Detener' : '▶ Activar'}
+              </button>
+
+              {autoSync && countdown > 0 && (
+                <span style={{ fontSize: 13, color: '#9ca3af' }}>
+                  Próximo sync en <strong style={{ color: '#34d399' }}>{formatTiempo(countdown)}</strong>
+                </span>
+              )}
+            </div>
+            {autoSync && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#6b7280' }}>
+                Sincronizará todos los días a las {horaSync} mientras la app esté abierta.
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Progreso */}
+      {syncing && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {archivoActual || 'Consultando servidor...'}
+          </div>
+          <div style={{ height: 5, background: '#374151', borderRadius: 999 }}>
+            <div style={{ height: '100%', width: `${progreso}%`, background: '#10b981', borderRadius: 999, transition: 'width 200ms' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Resumen */}
+      {resumen && !syncing && (
+        <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', fontSize: 13, color: '#6ee7b7', marginBottom: 12 }}>
+          {resumen}
+        </div>
+      )}
+
+      {/* Log */}
+      {log.length > 0 && (
+        <div style={{ background: '#0f172a', borderRadius: 10, padding: 12, maxHeight: 220, overflowY: 'auto', fontFamily: 'monospace', fontSize: 11, color: '#94a3b8', lineHeight: 1.7 }}>
+          {log.map((l, i) => <div key={i}>{l}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Galeria principal ─────────────────────────────────────────────────────
 function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout: () => void }) {
   const [fotos, setFotos] = useState<any[]>([]);
@@ -155,7 +522,8 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
   const [subiendo, setSubiendo] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<Array<{ id: string; file: File; preview: string; progress: number; uploaded: boolean; failed?: boolean }>>([]);
   const [selectionMode, setSelectionMode] = useState(false);
-  const [vistaActiva, setVistaActiva] = useState<'fotos' | 'streaming'>('fotos');
+  const [vistaActiva, setVistaActiva] = useState<'fotos' | 'streaming' | 'sync'>('fotos');
+  const [fotoAbierta, setFotoAbierta] = useState<any | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Modal de compartir
@@ -167,10 +535,22 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
   useEffect(() => {
     cargarFotos();
     cargarCuota();
-    // Polling cada 30 s para detectar archivos compartidos sin necesidad de refresh
     const intervalo = setInterval(() => { cargarFotos(); cargarCuota(); }, 30_000);
     return () => clearInterval(intervalo);
   }, []);
+
+  // Navegación con teclado en el lightbox
+  useEffect(() => {
+    if (!fotoAbierta) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setFotoAbierta(null); return; }
+      const idx = fotos.findIndex((f: any) => f.id === fotoAbierta.id);
+      if (e.key === 'ArrowRight' && idx < fotos.length - 1) setFotoAbierta(fotos[idx + 1]);
+      if (e.key === 'ArrowLeft'  && idx > 0)                setFotoAbierta(fotos[idx - 1]);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [fotoAbierta, fotos]);
 
   const cargarFotos = () => {
     api.get('/media')
@@ -372,6 +752,21 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
           }}>
           🎥 Streaming
         </button>
+        <button
+          onClick={() => setVistaActiva('sync')}
+          style={{
+            padding: '10px 24px',
+            border: 'none',
+            borderBottom: vistaActiva === 'sync' ? '2px solid #10b981' : '2px solid transparent',
+            background: 'none',
+            fontWeight: vistaActiva === 'sync' ? 700 : 400,
+            color: vistaActiva === 'sync' ? '#34d399' : '#6b7280',
+            cursor: 'pointer',
+            marginBottom: -2,
+            fontSize: 15
+          }}>
+          ⚙ Sync Automático
+        </button>
       </div>
 
       {vistaActiva === 'fotos' && (
@@ -434,8 +829,8 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 16 }}>
               {group.fotos.map((foto: any) => (
-                <div key={foto.id} onClick={() => selectionMode && toggleSeleccion(foto.id)}
-                  style={{ borderRadius: 12, overflow: 'hidden', background: '#1f2937', position: 'relative', cursor: selectionMode ? 'pointer' : 'default', boxShadow: seleccionados.has(foto.id) ? '0 0 0 3px #2563eb' : 'none', transition: 'box-shadow 120ms' }}>
+                <div key={foto.id} onClick={() => selectionMode ? toggleSeleccion(foto.id) : setFotoAbierta(foto)}
+                  style={{ borderRadius: 12, overflow: 'hidden', background: '#1f2937', position: 'relative', cursor: 'pointer', boxShadow: seleccionados.has(foto.id) ? '0 0 0 3px #2563eb' : 'none', transition: 'box-shadow 120ms' }}>
                   <div style={{ width: '100%', height: 150, background: '#374151' }}>
                     <AuthImage src={`/media/thumb/${foto.id}`} alt={foto.nombreOriginal}
                       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -535,12 +930,68 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
           </div>
         </div>
       )}
+
+      {/* ── Lightbox ──────────────────────────────────────────────────── */}
+      {fotoAbierta && (() => {
+        const idx = fotos.findIndex((f: any) => f.id === fotoAbierta.id);
+        return (
+          <div onClick={() => setFotoAbierta(null)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
+
+            {/* Imagen */}
+            <div onClick={e => e.stopPropagation()}
+              style={{ maxWidth: '90vw', maxHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <AuthImage
+                src={`/media/${fotoAbierta.id}`}
+                alt={fotoAbierta.nombreOriginal}
+                style={{ maxWidth: '90vw', maxHeight: '80vh', objectFit: 'contain', borderRadius: 8 }}
+              />
+            </div>
+
+            {/* Nombre + fecha */}
+            <div style={{ marginTop: 14, textAlign: 'center', color: '#d1d5db', fontSize: 13 }}>
+              <div style={{ fontWeight: 600 }}>{fotoAbierta.nombreOriginal}</div>
+              <div style={{ color: '#6b7280', fontSize: 12 }}>{new Date(fotoAbierta.creadoEn).toLocaleString()}</div>
+            </div>
+
+            {/* Flechas */}
+            {idx > 0 && (
+              <button onClick={e => { e.stopPropagation(); setFotoAbierta(fotos[idx - 1]); }}
+                style={{ position: 'fixed', left: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 28, width: 48, height: 48, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                ‹
+              </button>
+            )}
+            {idx < fotos.length - 1 && (
+              <button onClick={e => { e.stopPropagation(); setFotoAbierta(fotos[idx + 1]); }}
+                style={{ position: 'fixed', right: 16, top: '50%', transform: 'translateY(-50%)', background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 28, width: 48, height: 48, borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                ›
+              </button>
+            )}
+
+            {/* Botón cerrar */}
+            <button onClick={() => setFotoAbierta(null)}
+              style={{ position: 'fixed', top: 16, right: 16, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 20, width: 40, height: 40, borderRadius: '50%', cursor: 'pointer' }}>
+              ×
+            </button>
+
+            {/* Descarga rápida */}
+            <button onClick={e => { e.stopPropagation(); downloadSingle(fotoAbierta.id, fotoAbierta.nombreOriginal); }}
+              style={{ marginTop: 16, padding: '8px 20px', borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <DownloadCloud size={14} /> Descargar
+            </button>
+          </div>
+        );
+      })()}
         </div>
       )}
 
-      {vistaActiva === 'streaming' && (
+      <div style={{ display: vistaActiva === 'streaming' ? 'block' : 'none' }}>
         <VideoGallery />
-      )}
+      </div>
+
+      <div style={{ display: vistaActiva === 'sync' ? 'block' : 'none' }}>
+        <PanelSync email={nombreUsuario} />
+      </div>
     </div>
   );
 }

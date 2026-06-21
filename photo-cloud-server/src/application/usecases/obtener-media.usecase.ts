@@ -27,12 +27,14 @@ export class ObtenerMediaUseCase {
       throw new Error(`El archivo con ID ${id} no existe en la base de datos.`);
     }
 
-    // 2. Verificar consistencia física en MinIO
-    const existeFisicamente = await this.storageRepository.existeMedia(id);
-    if (!existeFisicamente) {
-      console.warn(`Inconsistencia detectada en ID ${id}: Archivo faltante. Limpiando registro...`);
-      await this.mediaRepository.eliminar(id);
-      throw new Error(`Inconsistencia detectada: El archivo físico no existía.`);
+    // 2. Verificar consistencia física en MinIO (self-healing desactivado — solo loguea)
+    try {
+      const existeFisicamente = await this.storageRepository.existeMedia(id);
+      if (!existeFisicamente) {
+        console.warn(`[Self-healing] Archivo ${id} no encontrado en MinIO (solo advertencia).`);
+      }
+    } catch (checkError: any) {
+      console.warn(`[Self-healing] Error verificando ${id}:`, checkError.message);
     }
 
     // 3. Descargar bytes desde MinIO

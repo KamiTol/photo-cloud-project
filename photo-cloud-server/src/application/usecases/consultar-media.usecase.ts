@@ -14,12 +14,17 @@ export class ConsultarMediaUseCase {
       throw new Error(`Archivo con ID ${id} no encontrado en la base de datos.`);
     }
 
-    // 2. Verificamos integridad (Self-healing)
-    const existeFisicamente = await this.storageRepository.existeMedia(id);
-    if (!existeFisicamente) {
-      console.warn(`Inconsistencia: Archivo ${id} existe en BD pero no en MinIO. Autocorrigiendo...`);
-      await this.mediaRepository.eliminar(id);
-      throw new Error(`El archivo ${id} no estaba disponible en el almacenamiento y ha sido eliminado del sistema.`);
+    // 2. Verificamos integridad (Self-healing DESACTIVADO — solo loguea, no borra)
+    // El borrado automático estaba eliminando registros válidos cuando MinIO
+    // devolvía errores de credenciales o conectividad. Se reactivará cuando
+    // se confirme que MinIO funciona correctamente.
+    try {
+      const existeFisicamente = await this.storageRepository.existeMedia(id);
+      if (!existeFisicamente) {
+        console.warn(`[Self-healing] Archivo ${id} no encontrado en MinIO (solo advertencia, no se borra).`);
+      }
+    } catch (checkError: any) {
+      console.warn(`[Self-healing] Error verificando ${id} en MinIO:`, checkError.message);
     }
 
     return media;

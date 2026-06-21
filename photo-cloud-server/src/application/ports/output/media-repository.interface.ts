@@ -7,7 +7,8 @@ export interface IMediaRepository {
   eliminar(id: string): Promise<void>;
   listarTodos(): Promise<Media[]>;
   listarPorUsuario(usuarioId: string): Promise<Media[]>;
-
-  // Lista únicamente los medios de un tipo concreto (IMAGEN o VIDEO)
   listarPorTipo(tipo: TipoMedia): Promise<Media[]>;
+  verificarPropietario(id: string, usuarioId: string): Promise<boolean>;
+  buscarPropietarioId(id: string): Promise<string | null>;
+  listarHashesPorUsuario(usuarioId: string): Promise<string[]>;
 }

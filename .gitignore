@@ -94,3 +94,11 @@ src/test/assets/*
 # Optional: Docker / DB volumes uncomment if used locally
 # .docker-data/
 # pg-data/
+
+# ==========================================
+# GO SYNC
+# ==========================================
+go-sync/sync-server.exe
+go-sync/sync-client.exe
+go-sync/scripts/bin/
+go-sync/go.sum

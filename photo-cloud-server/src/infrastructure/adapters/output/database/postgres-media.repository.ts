@@ -14,29 +14,14 @@ export class PostgresMediaRepository implements IMediaRepository {
       media.id, media.nombreOriginal, media.mimetype, media.tipo,
       media.tamanoBytes, media.hash, JSON.stringify(media.metadatos), media.creadoEn, usuarioId
     ];
-
-    // DEBUG: confirmar la fecha que se insertará en la base de datos
     try {
-      console.info('DEBUG PostgresMediaRepository.guardar: insert creado_en =', media.creadoEn instanceof Date ? media.creadoEn.toISOString() : media.creadoEn);
-    } catch {
-      /* no-op */
-    }
-
+      console.info('DEBUG guardar: creado_en =', media.creadoEn instanceof Date ? media.creadoEn.toISOString() : media.creadoEn);
+    } catch { /* no-op */ }
     await this.dbPool.query(query, valores);
-    // DEBUG: verificar lo que quedó realmente en la base de datos
-    try {
-      const res = await this.dbPool.query('SELECT creado_en FROM medios WHERE id = $1', [media.id]);
-      if (res.rows && res.rows[0]) {
-        console.info('DEBUG PostgresMediaRepository.guardar: creado_en en DB =', res.rows[0].creado_en);
-      }
-    } catch (err) {
-      console.warn('DEBUG PostgresMediaRepository.guardar: no se pudo verificar creado_en en DB', (err as Error).message);
-    }
   }
 
   async buscarPorId(id: string): Promise<Media | null> {
-    const query = `SELECT * FROM medios WHERE id = $1;`;
-    const resultado = await this.dbPool.query(query, [id]);
+    const resultado = await this.dbPool.query(`SELECT * FROM medios WHERE id = $1;`, [id]);
     return resultado.rows.length === 0 ? null : this.mapearAMediaEntidad(resultado.rows[0]);
   }
 
@@ -65,11 +50,32 @@ export class PostgresMediaRepository implements IMediaRepository {
     return resultado.rows.map(fila => this.mapearAMediaEntidad(fila));
   }
 
-  // Lista únicamente los medios de un tipo concreto (IMAGEN o VIDEO), del más reciente al más antiguo
   async listarPorTipo(tipo: TipoMedia): Promise<Media[]> {
-    const query = `SELECT * FROM medios WHERE tipo = $1 ORDER BY creado_en DESC;`;
-    const resultado = await this.dbPool.query(query, [tipo]);
+    const resultado = await this.dbPool.query(
+      `SELECT * FROM medios WHERE tipo = $1 ORDER BY creado_en DESC;`, [tipo]
+    );
     return resultado.rows.map(fila => this.mapearAMediaEntidad(fila));
+  }
+
+  async verificarPropietario(id: string, usuarioId: string): Promise<boolean> {
+    const res = await this.dbPool.query(
+      `SELECT 1 FROM medios WHERE id = $1 AND usuario_id = $2`, [id, usuarioId]
+    );
+    return res.rows.length > 0;
+  }
+
+  async buscarPropietarioId(id: string): Promise<string | null> {
+    const res = await this.dbPool.query(
+      `SELECT usuario_id FROM medios WHERE id = $1`, [id]
+    );
+    return res.rows.length === 0 ? null : res.rows[0].usuario_id as string;
+  }
+
+  async listarHashesPorUsuario(usuarioId: string): Promise<string[]> {
+    const resultado = await this.dbPool.query(
+      `SELECT hash FROM medios WHERE usuario_id = $1`, [usuarioId]
+    );
+    return resultado.rows.map((r: any) => r.hash as string);
   }
 
   private mapearAMediaEntidad(fila: any): Media {

@@ -52,9 +52,14 @@ export class PostgresPermisosRepository implements IPermisosRepository {
     return result.rows.length === 0 ? null : this.mapear(result.rows[0]);
   }
 
-  async archivosCompartidosConmigo(usuarioId: string): Promise<{ archivoId: string; propietarioEmail: string; propietarioNombre: string }[]> {
+  async archivosCompartidosConmigo(usuarioId: string): Promise<{
+    archivoId: string;
+    propietarioEmail: string;
+    propietarioNombre: string;
+    puedeEscribir: boolean;
+  }[]> {
     const result = await this.pool.query(
-      `SELECT c.archivo_id, u.email AS propietario_email, u.nombre AS propietario_nombre
+      `SELECT c.archivo_id, u.email AS propietario_email, u.nombre AS propietario_nombre, c.puede_escribir
        FROM compartidos c
        JOIN usuarios u ON u.id = c.propietario_id
        WHERE c.destinatario_id = $1 AND c.puede_leer = true`,
@@ -64,6 +69,7 @@ export class PostgresPermisosRepository implements IPermisosRepository {
       archivoId: r.archivo_id,
       propietarioEmail: r.propietario_email,
       propietarioNombre: r.propietario_nombre,
+      puedeEscribir: r.puede_escribir,
     }));
   }
 

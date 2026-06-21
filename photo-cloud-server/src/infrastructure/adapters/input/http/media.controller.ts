@@ -6,6 +6,7 @@ import { BorrarMediaUseCase } from '../../../../application/usecases/borrar-medi
 import { ListarMediaUseCase } from '../../../../application/usecases/listar-media.usecase';
 import { ExifExtractor } from '../../output/exif-extractor';
 import { IStorageRepository } from '../../../../application/ports/output/storage-repository.interface';
+import { PostgresMediaRepository } from '../../output/database/postgres-media.repository';
 import { RequestConUsuario } from './auth.middleware';
 
 export class MediaController {
@@ -16,8 +17,9 @@ export class MediaController {
     private readonly consultarMediaUseCase: ConsultarMediaUseCase,
     private readonly obtenerMediaUseCase: ObtenerMediaUseCase,
     private readonly borrarMediaUseCase: BorrarMediaUseCase,
-    private readonly listarMediaUseCase: ListarMediaUseCase, // 👈 Inyección añadida
-    private readonly storageRepository: IStorageRepository
+    private readonly listarMediaUseCase: ListarMediaUseCase,
+    private readonly storageRepository: IStorageRepository,
+    private readonly mediaRepository: PostgresMediaRepository,
   ) {
     this.exifExtractor = new ExifExtractor();
   }
@@ -139,15 +141,24 @@ async consultar(req: Request, res: Response) {
     }
   }
 
-async listar(req: RequestConUsuario, res: Response) {
-  try {
-    const fotos = await this.listarMediaUseCase.ejecutar(req.usuario!.id);
-    res.json(fotos);
-  } catch (error: any) {
-    console.error('DETALLE DEL ERROR:', error);
-    res.status(500).json({ error: error.message });
+  async listar(req: RequestConUsuario, res: Response) {
+    try {
+      const fotos = await this.listarMediaUseCase.ejecutar(req.usuario!.id);
+      res.json(fotos);
+    } catch (error: any) {
+      console.error('DETALLE DEL ERROR:', error);
+      res.status(500).json({ error: error.message });
+    }
   }
-}
+
+  async hashes(req: RequestConUsuario, res: Response) {
+    try {
+      const hashes = await this.mediaRepository.listarHashesPorUsuario(req.usuario!.id);
+      res.json(hashes);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 
   async borrar(req: RequestConUsuario, res: Response) {
     try {
