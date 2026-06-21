@@ -1,20 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import axios from 'axios';
 import { zipSync } from 'fflate';
-import { DownloadCloud, Trash2, Plus, X, Check, LogOut, Share2, UserCheck } from 'lucide-react';
+import { DownloadCloud, Trash2, Plus, X, Check, LogOut, Share2, UserCheck, Image, Play } from 'lucide-react';
+import { api, setToken, getToken } from './api';
 import VideoGallery from './components/VideoGallery';
-
-const API = 'http://localhost:3000/api';
-
-// ── Axios con token ────────────────────────────────────────────────────────
-// El token se guarda en memoria (no en localStorage) para mayor seguridad
-let _token: string | null = null;
-
-const api = axios.create({ baseURL: API });
-api.interceptors.request.use((config) => {
-  if (_token) config.headers['Authorization'] = `Bearer ${_token}`;
-  return config;
-});
 
 // ── Imagen autenticada ────────────────────────────────────────────────────
 // <img> no puede enviar headers, así que descargamos con axios y usamos Object URL
@@ -55,13 +43,13 @@ function AuthScreen({ onLogin }: { onLogin: (token: string, nombre: string) => v
     setCargando(true);
     try {
       if (modo === 'register') {
-        await axios.post(`${API}/auth/register`, { nombre, email, password });
+        await api.post('/auth/register', { nombre, email, password });
         setModo('login');
         setError('Registro exitoso. Ahora inicia sesion.');
         setCargando(false);
         return;
       }
-      const { data } = await axios.post(`${API}/auth/login`, { email, password });
+      const { data } = await api.post('/auth/login', { email, password });
       onLogin(data.token, data.usuario.nombre);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error de conexion.');
@@ -186,7 +174,8 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
 
   const cargarFotos = () => {
     api.get('/media')
-      .then(res => setFotos(res.data))
+      // Excluir videos — esos van solo en la pestaña Streaming
+      .then(res => setFotos(res.data.filter((f: any) => !f.mimetype?.startsWith('video/'))))
       .catch(err => console.error(err));
   };
 
@@ -563,23 +552,23 @@ export default function App() {
   // Recuperar sesión previa de sessionStorage (sobrevive refresh, no cierre de pestaña)
   const saved = (() => { try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); } catch { return null; } })();
 
-  const [token, setToken]   = useState<string | null>(saved?.token ?? null);
-  const [nombre, setNombre] = useState<string>(saved?.nombre ?? '');
+  const [token, setTokenState] = useState<string | null>(saved?.token ?? null);
+  const [nombre, setNombre]    = useState<string>(saved?.nombre ?? '');
 
   // Sincronizar token en memoria al montar (necesario para el interceptor de axios)
-  if (saved?.token && !_token) _token = saved.token;
+  if (saved?.token && !getToken()) setToken(saved.token);
 
   const handleLogin = (t: string, n: string) => {
-    _token = t;
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: t, nombre: n }));
     setToken(t);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token: t, nombre: n }));
+    setTokenState(t);
     setNombre(n);
   };
 
   const handleLogout = () => {
-    _token = null;
-    sessionStorage.removeItem(SESSION_KEY);
     setToken(null);
+    sessionStorage.removeItem(SESSION_KEY);
+    setTokenState(null);
     setNombre('');
   };
 

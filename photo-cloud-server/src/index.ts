@@ -106,7 +106,8 @@ app.get('/api/usuarios/me', async (req: RequestConUsuario, res) => {
   }
 });
 
-// 🎥 Módulo de Streaming — rutas (publicas, fuera de authMiddleware)
+// 🎥 Módulo de Streaming — protegido con JWT (token via header o ?token= para <video src>)
+app.use('/api/streaming', authMiddleware);
 app.get('/api/streaming',          (req, res) => streamingController.listar(req, res));
 app.get('/api/streaming/:id/info', (req, res) => streamingController.info(req, res));
 app.get('/api/streaming/:id',      (req, res) => streamingController.stream(req, res));

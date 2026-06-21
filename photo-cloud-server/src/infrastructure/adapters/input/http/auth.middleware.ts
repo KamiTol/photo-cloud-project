@@ -8,9 +8,13 @@ export interface RequestConUsuario extends Request {
 }
 
 export function authMiddleware(req: RequestConUsuario, res: Response, next: NextFunction) {
-  // El token llega en el header: Authorization: Bearer <token>
+  // El token puede llegar como header Bearer (API normal) o como query param ?token=
+  // El query param es necesario para <video src="...?token=xxx"> ya que el navegador
+  // no puede enviar headers personalizados en solicitudes de recursos multimedia.
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const tokenDeHeader = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const tokenDeQuery  = typeof req.query.token === 'string' ? req.query.token : null;
+  const token = tokenDeHeader ?? tokenDeQuery;
 
   if (!token) {
     return res.status(401).json({ error: 'Acceso denegado. Se requiere autenticacion.' });

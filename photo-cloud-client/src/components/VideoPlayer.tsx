@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
+import { getToken } from '../api';
 
 interface VideoPlayerProps {
   videoId: string;
@@ -108,7 +109,7 @@ function VideoPlayer({ videoId, nombreOriginal, onCerrar }: VideoPlayerProps) {
           </div>
         ) : (
           <video
-            src={`http://localhost:3000/api/streaming/${videoId}`}
+            src={`http://localhost:3000/api/streaming/${videoId}?token=${getToken()}`}
             controls={true}
             autoPlay={true}
             preload="metadata"
