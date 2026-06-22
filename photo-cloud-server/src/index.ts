@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import './env';
 import express from 'express';
 import multer from 'multer';
 import cors from 'cors';
@@ -6,6 +6,7 @@ import cors from 'cors';
 import { dbPool } from './infrastructure/adapters/output/database/postgres-pool';
 import { PostgresMediaRepository } from './infrastructure/adapters/output/database/postgres-media.repository';
 import { PostgresUsuarioRepository } from './infrastructure/adapters/output/database/postgres-usuario.repository';
+import { SoapUsuarioClient } from './infrastructure/adapters/output/soap/soap-usuario.client';
 import { MinioStorageRepository } from './infrastructure/adapters/output/storage/minio-storage.repository';
 
 import { SubirMediaUseCase } from './application/usecases/subir-media.usecase';
@@ -33,10 +34,17 @@ app.use(express.json());
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-const mediaRepository    = new PostgresMediaRepository(dbPool);
-const usuarioRepository  = new PostgresUsuarioRepository(dbPool);
-const storageRepository  = new MinioStorageRepository();
-const permisosRepository = new PostgresPermisosRepository(dbPool);
+const mediaRepository     = new PostgresMediaRepository(dbPool);
+const usuarioRepository   = new PostgresUsuarioRepository(dbPool);
+const storageRepository   = new MinioStorageRepository();
+const permisosRepository  = new PostgresPermisosRepository(dbPool);
+
+// Gestion de usuarios delegada al servicio SOAP externo (soap-server/, PHP).
+// Puede vivir en otra maquina del CCA: SOAP_WSDL_URL/SOAP_ENDPOINT_URL apuntan a ella.
+const usuarioIdentidadServicio = new SoapUsuarioClient(
+  process.env.SOAP_WSDL_URL || 'http://localhost:8080/usuarios.wsdl',
+  process.env.SOAP_ENDPOINT_URL,
+);
 
 const subirMediaUseCase     = new SubirMediaUseCase(mediaRepository, storageRepository, usuarioRepository);
 const consultarMediaUseCase = new ConsultarMediaUseCase(mediaRepository, storageRepository);
@@ -45,8 +53,8 @@ const borrarMediaUseCase    = new BorrarMediaUseCase(mediaRepository, storageRep
 const listarMediaUseCase    = new ListarMediaUseCase(mediaRepository, permisosRepository);
 const compartirUseCase      = new CompartirArchivoUseCase(mediaRepository, usuarioRepository, permisosRepository);
 
-const registrarUseCase = new RegistrarUsuarioUseCase(usuarioRepository);
-const loginUseCase     = new LoginUsuarioUseCase(usuarioRepository);
+const registrarUseCase = new RegistrarUsuarioUseCase(usuarioIdentidadServicio);
+const loginUseCase     = new LoginUsuarioUseCase(usuarioIdentidadServicio);
 
 const mediaController = new MediaController(
   subirMediaUseCase,

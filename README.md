@@ -9,11 +9,14 @@ Sistema distribuido de almacenamiento y compartición de archivos para el Centro
 ```
 [Browser]  ──HTTP/REST──►  [Node.js API :3000]
                                 │
-                    ┌───────────┼───────────┐
-                    ▼           ▼           ▼
-              [PostgreSQL]  [MinIO :9000]  (próximamente)
-               metadatos    archivos       Go/gRPC · PHP/SOAP · Java/RMI
+                    ┌───────────┼───────────┬──────────────┐
+                    ▼           ▼           ▼              ▼
+              [PostgreSQL]  [MinIO :9000]  [Go/gRPC :50051] [PHP/SOAP :8080]
+               metadatos    archivos        File Sync        Gestión usuarios
+                                            (go-sync/)        (soap-server/)
 ```
+
+> `soap-server/` y `go-sync/` comparten la misma base PostgreSQL y el mismo bucket MinIO que `photo-cloud-server`. No son réplicas: son vistas distintas (RPC distinto) sobre el mismo estado.
 
 ---
 
@@ -25,6 +28,8 @@ Sistema distribuido de almacenamiento y compartición de archivos para el Centro
 | PostgreSQL | 15+ | https://www.postgresql.org/download/windows/ |
 | MinIO | cualquiera | se descarga automáticamente con el script |
 | Git | cualquiera | https://git-scm.com |
+| Go | 1.22+ | solo para `go-sync/` (File Sync gRPC) |
+| PHP | 8.1+ con `ext-soap` y `ext-pdo_pgsql` | solo para `soap-server/` (gestión de usuarios SOAP) |
 
 > **Windows**: todos los scripts son PowerShell (`.ps1`).  
 > **Linux/Mac**: hay equivalentes `.sh` en la misma carpeta `scripts/`.
@@ -70,6 +75,9 @@ MINIO_BUCKET=fotos-originales
 PORT=3000
 JWT_SECRET=mi_secreto_super_seguro_cambiar_en_produccion
 JWT_EXPIRES_IN=8h
+
+# Servicio SOAP de gestion de usuarios (soap-server/), debe estar corriendo
+SOAP_WSDL_URL=http://localhost:8080/usuarios.wsdl
 ```
 
 ### 3. Instalar infraestructura (PostgreSQL + MinIO)
@@ -131,9 +139,18 @@ cd ..
 
 ## Ejecutar el proyecto
 
-Necesitas **tres terminales** abiertas simultáneamente:
+Necesitas **cuatro terminales** abiertas simultáneamente:
 
-### Terminal 1 — MinIO
+### Terminal 1 — Servidor SOAP de usuarios (PHP)
+
+```powershell
+cd soap-server
+php -S localhost:8080 -t public
+```
+
+> Requerido antes de registrar/iniciar sesión: `photo-cloud-server` delega ahí la gestión de usuarios. Ver [soap-server/README.md](soap-server/README.md).
+
+### Terminal 2 — MinIO
 
 > Si el script de setup ya lo registró como tarea programada, MinIO debería estar corriendo.  
 > Si no, inícialo manualmente:
@@ -146,7 +163,7 @@ $env:MINIO_ROOT_PASSWORD="12345678"
 
 Verifica que esté corriendo en: http://localhost:9000
 
-### Terminal 2 — Servidor API (Node.js)
+### Terminal 3 — Servidor API (Node.js)
 
 ```powershell
 cd photo-cloud-server
@@ -161,7 +178,7 @@ Rutas publicas:   POST /api/auth/register | POST /api/auth/login
 Rutas protegidas: /api/media/* | GET /api/usuarios/me
 ```
 
-### Terminal 3 — Frontend (React + Vite)
+### Terminal 4 — Frontend (React + Vite)
 
 ```powershell
 cd photo-cloud-client
@@ -230,6 +247,15 @@ photo-cloud-project/
 │   │   └── App.tsx             # Toda la UI (auth + galería + compartir)
 │   └── package.json
 │
+├── go-sync/                    # File Sync — servidor/cliente gRPC en Go
+│
+├── soap-server/                # Gestión de usuarios — servidor SOAP en PHP
+│   ├── public/
+│   │   ├── server.php          # Endpoint SOAP
+│   │   └── usuarios.wsdl       # Contrato WSDL
+│   ├── src/                    # UsuarioService, Database, Env
+│   └── client_test.php         # Cliente de prueba
+│
 ├── .env.example                # Plantilla de variables de entorno
 └── README.md                   # Este archivo
 ```
@@ -242,8 +268,10 @@ photo-cloud-project/
 
 | Método | Ruta | Body | Descripción |
 |---|---|---|---|
-| POST | `/api/auth/register` | `{ nombre, email, password }` | Registrar usuario |
-| POST | `/api/auth/login` | `{ email, password }` | Login → devuelve `{ token, usuario }` |
+| POST | `/api/auth/register` | `{ nombre, email, password }` | Registrar usuario — delega en `soap-server/` (SOAP) |
+| POST | `/api/auth/login` | `{ email, password }` | Login — credenciales verificadas vía `soap-server/`, Node solo emite el JWT |
+
+> `photo-cloud-server` ya no gestiona `password_hash` directamente: lo hace `soap-server/` como servicio externo. Ver [soap-server/README.md](soap-server/README.md#integración-con-el-resto-del-sistema).
 
 ### Archivos (requieren `Authorization: Bearer <token>`)
 
@@ -296,6 +324,12 @@ Normalmente es porque MinIO no está corriendo o las credenciales no coinciden c
 **El refresh cierra la sesión**  
 Asegúrate de tener la última versión del cliente. La sesión se guarda en `sessionStorage` y sobrevive el refresh (pero no el cierre de la pestaña, que es el comportamiento esperado).
 
+**`/api/auth/register` o `/api/auth/login` responden "El servicio de gestion de usuarios (SOAP) no esta disponible"**  
+El servidor SOAP (`soap-server/`) no está corriendo. Levántalo con `php -S localhost:8080 -t public` desde `soap-server/` (ver [soap-server/README.md](soap-server/README.md)) — es un servicio independiente, debe estar arriba antes de registrar o iniciar sesión.
+
+**Variables de entorno del `.env` no toman efecto (p. ej. la contraseña de Postgres)**  
+Si tu máquina tiene una variable de entorno del sistema con el mismo nombre (p. ej. `DB_PASSWORD` definida globalmente en Windows por otra herramienta), puede pisar la del `.env`. El proyecto fuerza `dotenv.config({ override: true })` en [src/env.ts](photo-cloud-server/src/env.ts) precisamente para evitar esto, pero si sigues viendo el problema verifica con `[Environment]::GetEnvironmentVariable("DB_PASSWORD","Machine")` en PowerShell.
+
 ---
 
 ## Tecnologías utilizadas
@@ -304,9 +338,10 @@ Asegúrate de tener la última versión del cliente. La sesión se guarda en `se
 |---|---|
 | Backend API | Node.js + Express + TypeScript |
 | Frontend | React 19 + Vite + TypeScript |
+| Gestión de usuarios | SOAP (PHP) — `soap-server/`, consumido por Node vía npm `soap` |
 | Base de datos | PostgreSQL 15+ |
 | Almacenamiento de objetos | MinIO (S3-compatible) |
-| Autenticación | JWT (jsonwebtoken) + bcryptjs |
+| Autenticación | JWT (jsonwebtoken) en Node + verificación de credenciales delegada a `soap-server/` (bcrypt) |
 | Thumbnails | sharp |
 | Arquitectura | Hexagonal (puertos y adaptadores) |
 
@@ -319,9 +354,11 @@ Asegúrate de tener la última versión del cliente. La sesión se guarda en `se
 | 2 | Infraestructura nativa (sin Docker) | ✅ Completo |
 | 3 | Autenticación JWT + registro de usuarios | ✅ Completo |
 | 4 | Shared File: cuotas + permisos Unix + Photo Album | ✅ Completo |
-| 5 | Streaming de video | 🔄 Pendiente |
-| 6 | File Sync (Go + gRPC) | 🔄 Pendiente |
-| 7 | Gestión de usuarios SOAP (PHP) | 🔄 Pendiente |
+| 5 | Streaming de video | ✅ Completo |
+| 6 | File Sync (Go + gRPC) | ✅ Completo |
+| 7 | Gestión de usuarios SOAP (PHP), consumido por Node en `/api/auth/*` | ✅ Completo — ver [soap-server/README.md](soap-server/README.md) |
 | 8 | Cluster HPC (Java + RMI) | 🔄 Pendiente |
-| 9 | Seguridad (GPG + análisis de vulnerabilidades) | 🔄 Pendiente |
+| 9 | Seguridad (GPG + análisis de vulnerabilidades + MFA) | 🔄 Pendiente |
+| 10 | Directorio activo para perfiles de usuario | 🔄 Pendiente |
+| 11 | Clientes nativos Windows/Linux/Android/iOS | 🔄 Pendiente |
 | 1 | Diagrama de arquitectura final | 🔄 Pendiente |

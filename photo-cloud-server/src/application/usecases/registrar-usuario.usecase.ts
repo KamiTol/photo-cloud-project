@@ -1,7 +1,4 @@
-import bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
-import { IUsuarioRepository } from '../ports/output/usuario-repository.interface';
-import { Usuario } from '../../domain/models/usuario';
+import { IUsuarioIdentidadServicio } from '../ports/output/usuario-identidad-servicio.interface';
 
 export interface RegistrarUsuarioDTO {
   nombre: string;
@@ -9,29 +6,26 @@ export interface RegistrarUsuarioDTO {
   password: string;
 }
 
+/**
+ * El registro de usuarios se delega al servicio SOAP de gestion de usuarios
+ * (soap-server/, PHP) en lugar de escribirse directamente en la base de
+ * datos desde Node. El SOAP server es quien hashea la password y persiste
+ * la fila en la tabla compartida `usuarios`.
+ */
 export class RegistrarUsuarioUseCase {
-  constructor(private readonly usuarioRepository: IUsuarioRepository) {}
+  constructor(private readonly identidadServicio: IUsuarioIdentidadServicio) {}
 
   async ejecutar(dto: RegistrarUsuarioDTO): Promise<{ id: string; email: string }> {
-    // Verificar que el email no este ya registrado
-    const existente = await this.usuarioRepository.buscarPorEmail(dto.email);
-    if (existente) throw new Error('El email ya esta registrado.');
+    if (dto.password.length < 8) {
+      throw new Error('La contrasena debe tener al menos 8 caracteres.');
+    }
 
-    // Validar que la password tenga al menos 8 caracteres
-    if (dto.password.length < 8) throw new Error('La contrasena debe tener al menos 8 caracteres.');
-
-    // Hashear la contrasena con bcrypt (10 rounds = balance seguridad/velocidad)
-    const passwordHash = await bcrypt.hash(dto.password, 10);
-
-    const usuario = new Usuario(
-      randomUUID(),
+    const usuario = await this.identidadServicio.registrar(
       dto.nombre.trim(),
       dto.email.toLowerCase().trim(),
-      passwordHash,
-      new Date(),
+      dto.password,
     );
 
-    await this.usuarioRepository.guardar(usuario);
     return { id: usuario.id, email: usuario.email };
   }
 }

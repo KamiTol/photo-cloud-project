@@ -1,0 +1,191 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions name="UsuarioService"
+             targetNamespace="urn:upbcientifica:usuarios"
+             xmlns:tns="urn:upbcientifica:usuarios"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/"
+             xmlns="http://schemas.xmlsoap.org/wsdl/">
+
+  <types>
+    <xsd:schema targetNamespace="urn:upbcientifica:usuarios">
+
+      <xsd:complexType name="Usuario">
+        <xsd:sequence>
+          <xsd:element name="id" type="xsd:string"/>
+          <xsd:element name="nombre" type="xsd:string"/>
+          <xsd:element name="email" type="xsd:string"/>
+          <xsd:element name="creadoEn" type="xsd:string"/>
+          <xsd:element name="cuotaMaximaBytes" type="xsd:long"/>
+          <xsd:element name="usoBytes" type="xsd:long"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+      <xsd:complexType name="ArrayOfUsuario">
+        <xsd:sequence>
+          <xsd:element name="usuario" type="tns:Usuario" minOccurs="0" maxOccurs="unbounded"/>
+        </xsd:sequence>
+      </xsd:complexType>
+
+    </xsd:schema>
+  </types>
+
+  <!-- registrarUsuario -->
+  <message name="registrarUsuarioRequest">
+    <part name="nombre" type="xsd:string"/>
+    <part name="email" type="xsd:string"/>
+    <part name="password" type="xsd:string"/>
+  </message>
+  <message name="registrarUsuarioResponse">
+    <part name="return" type="tns:Usuario"/>
+  </message>
+
+  <!-- autenticarUsuario -->
+  <message name="autenticarUsuarioRequest">
+    <part name="email" type="xsd:string"/>
+    <part name="password" type="xsd:string"/>
+  </message>
+  <message name="autenticarUsuarioResponse">
+    <part name="return" type="tns:Usuario"/>
+  </message>
+
+  <!-- obtenerUsuarioPorEmail -->
+  <message name="obtenerUsuarioPorEmailRequest">
+    <part name="email" type="xsd:string"/>
+  </message>
+  <message name="obtenerUsuarioPorEmailResponse">
+    <part name="return" type="tns:Usuario"/>
+  </message>
+
+  <!-- obtenerUsuarioPorId -->
+  <message name="obtenerUsuarioPorIdRequest">
+    <part name="id" type="xsd:string"/>
+  </message>
+  <message name="obtenerUsuarioPorIdResponse">
+    <part name="return" type="tns:Usuario"/>
+  </message>
+
+  <!-- listarUsuarios -->
+  <message name="listarUsuariosRequest"/>
+  <message name="listarUsuariosResponse">
+    <part name="return" type="tns:ArrayOfUsuario"/>
+  </message>
+
+  <!-- actualizarCuota -->
+  <message name="actualizarCuotaRequest">
+    <part name="id" type="xsd:string"/>
+    <part name="cuotaMaximaBytes" type="xsd:long"/>
+  </message>
+  <message name="actualizarCuotaResponse">
+    <part name="return" type="xsd:boolean"/>
+  </message>
+
+  <!-- eliminarUsuario -->
+  <message name="eliminarUsuarioRequest">
+    <part name="id" type="xsd:string"/>
+  </message>
+  <message name="eliminarUsuarioResponse">
+    <part name="return" type="xsd:boolean"/>
+  </message>
+
+  <!-- existeEmail -->
+  <message name="existeEmailRequest">
+    <part name="email" type="xsd:string"/>
+  </message>
+  <message name="existeEmailResponse">
+    <part name="return" type="xsd:boolean"/>
+  </message>
+
+  <portType name="UsuarioServicePortType">
+    <operation name="registrarUsuario">
+      <input message="tns:registrarUsuarioRequest"/>
+      <output message="tns:registrarUsuarioResponse"/>
+    </operation>
+    <operation name="autenticarUsuario">
+      <input message="tns:autenticarUsuarioRequest"/>
+      <output message="tns:autenticarUsuarioResponse"/>
+    </operation>
+    <operation name="obtenerUsuarioPorEmail">
+      <input message="tns:obtenerUsuarioPorEmailRequest"/>
+      <output message="tns:obtenerUsuarioPorEmailResponse"/>
+    </operation>
+    <operation name="obtenerUsuarioPorId">
+      <input message="tns:obtenerUsuarioPorIdRequest"/>
+      <output message="tns:obtenerUsuarioPorIdResponse"/>
+    </operation>
+    <operation name="listarUsuarios">
+      <input message="tns:listarUsuariosRequest"/>
+      <output message="tns:listarUsuariosResponse"/>
+    </operation>
+    <operation name="actualizarCuota">
+      <input message="tns:actualizarCuotaRequest"/>
+      <output message="tns:actualizarCuotaResponse"/>
+    </operation>
+    <operation name="eliminarUsuario">
+      <input message="tns:eliminarUsuarioRequest"/>
+      <output message="tns:eliminarUsuarioResponse"/>
+    </operation>
+    <operation name="existeEmail">
+      <input message="tns:existeEmailRequest"/>
+      <output message="tns:existeEmailResponse"/>
+    </operation>
+  </portType>
+
+  <binding name="UsuarioServiceBinding" type="tns:UsuarioServicePortType">
+    <soap:binding style="rpc" transport="http://schemas.xmlsoap.org/soap/http"/>
+
+    <operation name="registrarUsuario">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#registrarUsuario"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+
+    <operation name="autenticarUsuario">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#autenticarUsuario"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+
+    <operation name="obtenerUsuarioPorEmail">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#obtenerUsuarioPorEmail"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+
+    <operation name="obtenerUsuarioPorId">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#obtenerUsuarioPorId"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+
+    <operation name="listarUsuarios">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#listarUsuarios"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+
+    <operation name="actualizarCuota">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#actualizarCuota"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+
+    <operation name="eliminarUsuario">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#eliminarUsuario"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+
+    <operation name="existeEmail">
+      <soap:operation soapAction="urn:upbcientifica:usuarios#existeEmail"/>
+      <input><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></input>
+      <output><soap:body use="encoded" namespace="urn:upbcientifica:usuarios" encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"/></output>
+    </operation>
+  </binding>
+
+  <service name="UsuarioService">
+    <port name="UsuarioServicePort" binding="tns:UsuarioServiceBinding">
+      <soap:address location="http://localhost:8080/server.php"/>
+    </port>
+  </service>
+
+</definitions>
