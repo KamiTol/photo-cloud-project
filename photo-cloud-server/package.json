@@ -11,7 +11,6 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.7",
@@ -21,22 +20,23 @@
     "@types/pg": "^8.20.0",
     "@types/piexifjs": "^1.0.0",
     "@types/sharp": "^0.31.1",
+    "@types/soap": "^0.18.0",
     "ts-node-dev": "^2.0.0",
     "typescript": "^6.0.3"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1053.0",
-    "bcryptjs": "^2.4.3",
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
-    "jsonwebtoken": "^9.0.2",
     "exif-parser": "^0.1.12",
     "exiftool-vendored": "^35.20.0",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
     "mime-types": "^3.0.2",
     "multer": "^2.1.1",
     "pg": "^8.21.0",
     "piexifjs": "^1.0.6",
-    "sharp": "^0.34.5"
+    "sharp": "^0.34.5",
+    "soap": "^1.9.3"
   }
 }

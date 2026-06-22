@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 import { IStorageRepository } from '../../../../application/ports/output/storage-repository.interface';
-import 'dotenv/config';
+import '../../../../env';
 
 export class MinioStorageRepository implements IStorageRepository {
   private readonly s3Client: S3Client;

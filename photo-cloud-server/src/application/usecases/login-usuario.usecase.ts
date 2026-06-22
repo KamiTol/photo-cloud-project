@@ -1,7 +1,6 @@
-import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import 'dotenv/config';
-import { IUsuarioRepository } from '../ports/output/usuario-repository.interface';
+import '../../env';
+import { IUsuarioIdentidadServicio } from '../ports/output/usuario-identidad-servicio.interface';
 
 export interface LoginDTO {
   email: string;
@@ -13,20 +12,28 @@ export interface LoginResultado {
   usuario: { id: string; nombre: string; email: string };
 }
 
+/**
+ * Las credenciales se verifican contra el servicio SOAP de usuarios
+ * (soap-server/). Node solo emite el JWT de sesion tras una autenticacion
+ * exitosa; no compara passwords ni toca password_hash directamente.
+ */
 export class LoginUsuarioUseCase {
-  constructor(private readonly usuarioRepository: IUsuarioRepository) {}
+  constructor(private readonly identidadServicio: IUsuarioIdentidadServicio) {}
 
   async ejecutar(dto: LoginDTO): Promise<LoginResultado> {
-    const usuario = await this.usuarioRepository.buscarPorEmail(dto.email.toLowerCase().trim());
+    let usuario;
+    try {
+      usuario = await this.identidadServicio.autenticar(dto.email.toLowerCase().trim(), dto.password);
+    } catch (error: any) {
+      // Una caida del servicio SOAP no es lo mismo que credenciales malas:
+      // ocultar la primera como "credenciales invalidas" rompe la
+      // observabilidad de una falla de infraestructura real.
+      if (error?.message?.includes('no esta disponible')) throw error;
 
-    // Misma respuesta si el usuario no existe o la contrasena es incorrecta
-    // (evita revelar si un email esta registrado o no)
-    const MENSAJE_ERROR = 'Credenciales invalidas.';
-
-    if (!usuario) throw new Error(MENSAJE_ERROR);
-
-    const passwordValida = await bcrypt.compare(dto.password, usuario.passwordHash);
-    if (!passwordValida) throw new Error(MENSAJE_ERROR);
+      // Mismo mensaje generico para credenciales invalidas o usuario
+      // inexistente (evita revelar si un email esta registrado o no).
+      throw new Error('Credenciales invalidas.');
+    }
 
     const secret = process.env.JWT_SECRET;
     if (!secret) throw new Error('JWT_SECRET no configurado en el servidor.');

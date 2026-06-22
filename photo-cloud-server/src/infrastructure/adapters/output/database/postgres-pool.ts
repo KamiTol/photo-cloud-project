@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import 'dotenv/config';
+import '../../../../env';
 
 // Pool de conexiones usando variables de entorno (sin credenciales hardcodeadas)
 export const dbPool = new Pool({

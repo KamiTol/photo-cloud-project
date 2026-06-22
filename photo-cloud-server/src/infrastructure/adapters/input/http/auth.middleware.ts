@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import 'dotenv/config';
+import '../../../../env';
 
 // Extendemos el tipo Request de Express para incluir el usuario autenticado
 export interface RequestConUsuario extends Request {
