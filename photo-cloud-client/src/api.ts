@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-export const API_BASE = 'http://localhost:3000/api';
+// En desarrollo: VITE_API_BASE_URL=http://localhost:3000/api  (.env.development)
+// En producción: sin variable → usa '/api' (Nginx hace proxy a Node.js)
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 // Token en memoria — se hidrata desde sessionStorage al arrancar la app
 let _token: string | null = null;
