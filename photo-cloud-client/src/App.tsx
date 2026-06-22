@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { zipSync } from 'fflate';
-import { DownloadCloud, Trash2, Plus, X, Check, LogOut, Share2, UserCheck, Image, Play } from 'lucide-react';
+import { DownloadCloud, Trash2, Plus, X, Check, LogOut, Share2, UserCheck } from 'lucide-react';
 import { api, setToken, getToken } from './api';
 import VideoGallery from './components/VideoGallery';
 
@@ -652,7 +652,7 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
 
   const downloadSingle = async (id: string, name?: string) => {
     const file = await fetchFile(id);
-    downloadBlob(new Blob([file.buffer], { type: file.contentType }), name ?? file.filename);
+    downloadBlob(new Blob([file.buffer], { type: file.contentType as string }), name ?? file.filename);
   };
 
   const downloadFilesAsZip = async (items: Array<{ id: string; filename?: string }>, zipName: string) => {
@@ -662,7 +662,7 @@ function Galeria({ nombreUsuario, onLogout }: { nombreUsuario: string; onLogout:
     }));
     const zipObj: Record<string, Uint8Array> = {};
     results.forEach(r => { zipObj[r.filename] = r.data; });
-    downloadBlob(new Blob([zipSync(zipObj)], { type: 'application/zip' }), zipName);
+    downloadBlob(new Blob([zipSync(zipObj).buffer as ArrayBuffer], { type: 'application/zip' }), zipName);
   };
 
   const downloadSelected = async () => {

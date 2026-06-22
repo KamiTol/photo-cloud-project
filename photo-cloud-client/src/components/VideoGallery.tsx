@@ -62,7 +62,7 @@ function VideoGallery() {
 
   const descargar = async (video: any) => {
     const res = await api.get('/media/' + video.id + '/download', { responseType: 'arraybuffer' });
-    const blob = new Blob([res.data], { type: res.headers['content-type'] });
+    const blob = new Blob([res.data], { type: res.headers['content-type'] as string });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
     a.href = url; a.download = obtenerNombre(video);
