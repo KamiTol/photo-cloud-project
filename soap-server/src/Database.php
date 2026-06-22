@@ -18,7 +18,7 @@ final class Database
         $user = Env::get('DB_USER', 'admin_fotos');
         $pass = Env::get('DB_PASSWORD', '12345678');
 
-        $dsn = "pgsql:host=$host;port=$port;dbname=$name";
+        $dsn = "pgsql:host=$host;port=$port;dbname=$name;options='--search_path=public'";
 
         self::$instance = new PDO($dsn, $user, $pass, [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
